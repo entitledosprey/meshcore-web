@@ -81,7 +81,9 @@ bring it up alongside the base compose file:
 docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d
 ```
 
-The API token needs `Zone:DNS:Edit` on the zone only.
+The API token needs `Zone:DNS:Edit` on the zone only. Point an A record for
+the hostname at the host's LAN address, DNS-only (not proxied) — the DNS-01
+challenge proves ownership without the host being reachable from outside.
 
 ## Security
 

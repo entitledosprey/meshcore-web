@@ -4,7 +4,9 @@
 # Requires MESH_HOSTNAME and CF_API_TOKEN in .env
 services:
   caddy:
-    image: ghcr.io/caddybuilds/caddy-cloudflare:2.10
+    # 2.11+ is required: earlier builds carry a libdns-cloudflare that rejects
+    # Cloudflare's newer prefixed API tokens as malformed.
+    image: ghcr.io/caddybuilds/caddy-cloudflare:2.11.4
     container_name: meshcore-caddy
     restart: unless-stopped
     ports:
