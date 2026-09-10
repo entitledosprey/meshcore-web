@@ -58,7 +58,16 @@ function connectWS() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws`);
 
-  ws.onopen = () => { wsRetry = 1000; };
+  ws.onopen = () => {
+    // Pull anything that arrived while the socket was down; the server no
+    // longer replays chat over the event stream.
+    if (lastMsgId > 0) {
+      api(`/api/chat/messages?since=${lastMsgId}`)
+        .then((r) => (r.messages || []).forEach(onChatMessage))
+        .catch(() => {});
+    }
+    wsRetry = 1000;
+  };
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
     if (m.type === 'state') { STATE = m.state; renderAll(); }
@@ -634,6 +643,9 @@ function renderMessages() {
 }
 
 function onChatMessage(m) {
+  // A reconnect can redeliver a message we already have; counting it again
+  // would resurrect a badge the user has already cleared.
+  if (m.id != null && MESSAGES.some((x) => x.id === m.id)) return;
   MESSAGES.push(m);
   lastMsgId = Math.max(lastMsgId, m.id);
   const onThisThread = isActive(m) && $('#tab-chat').classList.contains('active');
@@ -835,6 +847,7 @@ $('#ctcList').addEventListener('click', async (ev) => {
     $$('.panel').forEach((x) => x.classList.remove('active'));
     $('.tab[data-tab="chat"]').classList.add('active');
     $('#tab-chat').classList.add('active');
+    clearUnread();
     renderChatSide(); renderMessages(); $('#chatText').focus();
     return;
   }

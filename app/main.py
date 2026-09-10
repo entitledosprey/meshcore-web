@@ -159,7 +159,13 @@ async def ws(sock: WebSocket):
     mesh.add_listener(listener)
     try:
         await sock.send_json({"type": "state", "state": mesh.state()})
+        # Chat is replayed here deliberately excluded: the client already loads
+        # history from /api/chat/messages, and re-delivering it on every
+        # reconnect would duplicate messages and re-raise unread badges for
+        # messages that have already been read.
         for rec in mesh.backlog(0)[-80:]:
+            if rec["kind"] == "chat":
+                continue
             await sock.send_json({"type": "event", "event": rec})
         while True:
             try:
