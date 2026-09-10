@@ -217,14 +217,16 @@
       <button class="btn btn-ghost icon-only" id="chanClose">&#10005;</button>
     </div>
     <div class="sheet-body">
-      <p class="hint">Everyone on the channel needs the same name and key.
-        Leave the key blank to generate one, then share it with the others.</p>
+      <p class="hint">Name it <b>#something</b> and the key is derived from the
+        name, so anyone who adds the same <b>#name</b> on any device joins the
+        same channel. Only supply a key to join a channel that was not created
+        that way.</p>
       <div class="grid-form">
         <label>Channel name<input id="chanName" type="text" maxlength="32"
-               autocapitalize="off" spellcheck="false"></label>
+               autocapitalize="off" spellcheck="false" placeholder="#tejas"></label>
         <label>Shared key (32 hex chars, optional)
           <input id="chanKey" type="text" maxlength="32" autocapitalize="off"
-                 spellcheck="false" placeholder="leave blank to generate"></label>
+                 spellcheck="false" placeholder="leave blank to derive from the name"></label>
       </div>
       <div class="actions">
         <button class="btn btn-primary" id="chanCreate">Create channel</button>

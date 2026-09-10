@@ -318,7 +318,9 @@ pre.raw{
 /* ---------- chat ---------- */
 .chat{
   display:grid; grid-template-columns:230px minmax(0,1fr); gap:16px;
-  height:calc(100vh - 190px); min-height:420px;
+  /* Fixed viewport-relative height: the message list scrolls inside it
+     instead of the page growing without bound. */
+  height:min(calc(100vh - 200px), 900px); min-height:400px;
 }
 .chat-side{
   background:var(--card); border:1px solid var(--line); border-radius:var(--r);
@@ -335,8 +337,15 @@ pre.raw{
   display:flex; align-items:center; gap:6px; width:100%; text-align:left;
   background:none; border:0; border-radius:7px; padding:0 10px;
   min-height:var(--tap); color:var(--tx2); cursor:pointer; font-size:13.5px;
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  overflow:hidden; white-space:nowrap;
 }
+.ci-name{flex:1;overflow:hidden;text-overflow:ellipsis}
+.ci-badge{
+  flex-shrink:0; min-width:19px; padding:1px 6px; border-radius:999px;
+  background:var(--acc); color:#fff; font-size:11px; font-weight:700;
+  text-align:center; line-height:1.5;
+}
+.chat-item.on .ci-badge{background:#fff;color:var(--acc2)}
 .chat-item:hover{background:var(--card2);color:var(--tx)}
 .chat-item.on{background:var(--acc2);color:#fff}
 .chat-item .hash{color:var(--tx3);font-weight:700}
@@ -345,6 +354,8 @@ pre.raw{
 .chat-main{
   background:var(--card); border:1px solid var(--line); border-radius:var(--r);
   display:flex; flex-direction:column; min-width:0;
+  min-height:0;     /* lets the message list shrink so it can scroll */
+  overflow:hidden;
 }
 .chat-head{
   display:flex; align-items:baseline; gap:10px; padding:12px 16px;
@@ -354,8 +365,10 @@ pre.raw{
 .chat-head .sub{font-size:11.5px;color:var(--tx3)}
 .chat-head .btn{margin-left:auto}
 .chat-msgs{
-  flex:1; overflow-y:auto; padding:16px; display:flex;
-  flex-direction:column; gap:10px;
+  flex:1 1 0; min-height:0;   /* without min-height:0 a flex child grows to
+                                 fit its content and never scrolls */
+  overflow-y:auto; overscroll-behavior:contain;
+  padding:16px; display:flex; flex-direction:column; gap:10px;
 }
 .msg{max-width:min(560px,80%);align-self:flex-start}
 .msg-out{align-self:flex-end;text-align:right}
@@ -380,7 +393,7 @@ pre.raw{
   .chat-side-head{padding:0 4px 0 2px;white-space:nowrap}
   .chat-list{flex-direction:row;margin-bottom:0}
   .chat-item{width:auto;padding:0 12px}
-  .chat-main{height:calc(100dvh - 280px);min-height:360px}
+  .chat-main{height:calc(100dvh - 300px);min-height:320px}
   .msg{max-width:88%}
   .chat-input input{font-size:16px}   /* no iOS zoom on focus */
 }

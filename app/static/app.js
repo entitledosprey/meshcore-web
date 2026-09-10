@@ -182,10 +182,11 @@ function setIfIdle(sel, val) {
 
 function renderRepeaters() {
   const list = $('#repeaterList');
-  const cs = (STATE.contacts || []);
+  // Infrastructure only — companions belong on the Contacts tab.
+  const cs = (STATE.contacts || []).filter((c) => c.is_infra);
   if (!cs.length) {
     list.innerHTML = `<div class="card"><div class="empty">
-      No contacts yet.<br><br>Your node hears repeaters only when they advertise
+No repeaters or rooms yet.<br><br>Your node hears them only when they advertise
       <b>on the same radio settings</b>. Check the Node tab, then use
       <b>Discover repeaters</b> or import a contact URI above.</div></div>`;
     return;
@@ -546,6 +547,9 @@ let lastMsgId = 0;
 // {kind:'channel', id:0} or {kind:'dm', id:'<pubkey>'}
 let ACTIVE = { kind: 'channel', id: 0 };
 let unread = 0;
+const UNREAD = Object.create(null);          // thread key -> count
+const threadKey = (m) => (m.kind === 'channel' ? 'c:' + m.channel : 'd:' + m.contact_key);
+const activeKey = () => (ACTIVE.kind === 'channel' ? 'c:' + ACTIVE.id : 'd:' + ACTIVE.id);
 
 const chanName = (idx) => {
   const c = CHANNELS.find((x) => x.channel_idx === idx);
@@ -574,9 +578,12 @@ function renderChatSide() {
   $('#chanList').innerHTML = CHANNELS.length
     ? CHANNELS.map((c) => {
         const on = ACTIVE.kind === 'channel' && ACTIVE.id === c.channel_idx;
+        const n = UNREAD['c:' + c.channel_idx] || 0;
+        const nm = c.channel_name.replace(/^#/, '').toLowerCase();
         return `<button class="chat-item${on ? ' on' : ''}"
                   data-kind="channel" data-id="${c.channel_idx}">
-                  <span class="hash">#</span>${esc(c.channel_name.toLowerCase())}</button>`;
+                  <span class="hash">#</span><span class="ci-name">${esc(nm)}</span>
+                  ${n ? `<span class="ci-badge">${n}</span>` : ''}</button>`;
       }).join('')
     : '<div class="empty" style="padding:10px">no channels</div>';
 
@@ -584,9 +591,12 @@ function renderChatSide() {
   $('#dmList').innerHTML = dms.length
     ? dms.map((c) => {
         const on = ACTIVE.kind === 'dm' && ACTIVE.id === c.public_key;
+        const n = UNREAD['d:' + c.public_key] || 0;
         return `<button class="chat-item${on ? ' on' : ''}"
                   data-kind="dm" data-id="${esc(c.public_key)}">
-                  <span class="hash">@</span>${esc(c.adv_name || c.key_prefix)}</button>`;
+                  <span class="hash">@</span>
+                  <span class="ci-name">${esc(c.adv_name || c.key_prefix)}</span>
+                  ${n ? `<span class="ci-badge">${n}</span>` : ''}</button>`;
       }).join('')
     : '<div class="empty" style="padding:10px">no contacts yet</div>';
 }
@@ -626,14 +636,28 @@ function renderMessages() {
 function onChatMessage(m) {
   MESSAGES.push(m);
   lastMsgId = Math.max(lastMsgId, m.id);
-  if (isActive(m) && $('#tab-chat').classList.contains('active')) {
+  const onThisThread = isActive(m) && $('#tab-chat').classList.contains('active');
+  if (onThisThread) {
     renderMessages();
-  } else if (m.dir === 'in') {
-    unread++;
-    const b = $('#chatBadge');
-    b.hidden = false;
-    b.textContent = unread;
+    return;
   }
+  if (m.dir !== 'in') return;
+  const k = threadKey(m);
+  UNREAD[k] = (UNREAD[k] || 0) + 1;
+  unread = Object.values(UNREAD).reduce((a, b) => a + b, 0);
+  const b = $('#chatBadge');
+  b.hidden = false;
+  b.textContent = unread;
+  renderChatSide();
+}
+
+function clearUnread() {
+  delete UNREAD[activeKey()];
+  unread = Object.values(UNREAD).reduce((a, b) => a + b, 0);
+  const b = $('#chatBadge');
+  b.textContent = unread;
+  b.hidden = unread === 0;
+  renderChatSide();
 }
 
 $('#chanList').addEventListener('click', (e) => selectThread(e));
@@ -644,6 +668,7 @@ function selectThread(e) {
   if (!b) return;
   ACTIVE = { kind: b.dataset.kind,
              id: b.dataset.kind === 'channel' ? Number(b.dataset.id) : b.dataset.id };
+  clearUnread();
   renderChatSide();
   renderMessages();
   $('#chatText').focus();
@@ -679,9 +704,12 @@ $('#chanBackdrop').addEventListener('click', (e) => {
 });
 
 $('#chanCreate').onclick = (e) => withBusy(e.target, async () => {
-  const name = $('#chanName').value.trim();
+  let name = $('#chanName').value.trim();
   const key = $('#chanKey').value.trim();
   if (!name) return toast('name the channel', 'err');
+  // The key derivation hashes the name verbatim, so '#tejas' and 'tejas' are
+  // different channels. Default to the '#' form the other apps use.
+  if (!key && !name.startsWith('#')) name = '#' + name;
   if (key && !/^[0-9a-fA-F]{32}$/.test(key)) {
     return toast('key must be 32 hex characters', 'err');
   }
@@ -694,7 +722,9 @@ $('#chanCreate').onclick = (e) => withBusy(e.target, async () => {
     ACTIVE = { kind: 'channel', id: r.channel_idx };
     renderChatSide(); renderMessages();
     closeChan();
-    toast(`#${name.toLowerCase()} added`, 'ok');
+    const k = r.channel && r.channel.channel_secret;
+    toast(`${name.toLowerCase()} added${r.derived_key && k
+      ? ' (key ' + k.slice(0, 8) + '…)' : ''}`, 'ok');
   } catch (err) { o.textContent = 'error: ' + err.message; }
 });
 
@@ -836,7 +866,7 @@ $$('.tab').forEach((t) => t.onclick = () => {
   $('#tab-' + t.dataset.tab).classList.add('active');
   if (t.dataset.tab === 'console') $('#cliInput').focus();
   if (t.dataset.tab === 'chat') {
-    unread = 0; $('#chatBadge').hidden = true;
+    clearUnread();
     renderMessages(); $('#chatText').focus();
   }
 });

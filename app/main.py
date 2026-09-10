@@ -496,10 +496,16 @@ async def add_channel(r: ChanReq):
     if slot is None:
         raise HTTPException(status_code=409, detail="no free channel slots")
 
+    # A name is enough: the firmware derives the key as sha256(name)[:16], so
+    # everyone who types the same #name ends up on the same channel. An
+    # explicit key is only needed to join one that was not created that way.
     args = ["set_channel", str(slot), r.name] + ([r.key] if r.key else [])
     res = await _run(args, json_output=False, timeout=45)
-    await _run(["get_channels"], json_output=True, timeout=60)
-    return {**res, "channel_idx": slot}
+    listing = await _run(["get_channels"], json_output=True, timeout=60)
+    made = next((c for c in (listing.get("data") or [])
+                 if c.get("channel_idx") == slot), None)
+    return {**res, "channel_idx": slot, "channel": made,
+            "derived_key": bool(not r.key)}
 
 
 @app.delete("/api/chat/channels/{idx}")
