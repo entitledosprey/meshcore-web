@@ -1,0 +1,29 @@
+# HTTPS via Caddy using the Cloudflare DNS-01 challenge, so the host never has
+# to be reachable from the internet.
+#   docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d
+# Requires MESH_HOSTNAME and CF_API_TOKEN in .env
+services:
+  caddy:
+    image: ghcr.io/caddybuilds/caddy-cloudflare:2.10
+    container_name: meshcore-caddy
+    restart: unless-stopped
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      MESH_HOSTNAME: ${MESH_HOSTNAME:?set MESH_HOSTNAME in .env}
+      CF_API_TOKEN: ${CF_API_TOKEN:?set CF_API_TOKEN in .env}
+    depends_on:
+      - meshcore-web
+
+  meshcore-web:
+    # Reached over the compose network by Caddy; no need to publish it directly.
+    ports: !reset []
+
+volumes:
+  caddy-data:
+  caddy-config:

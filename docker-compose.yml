@@ -1,0 +1,24 @@
+services:
+  meshcore-web:
+    image: ghcr.io/entitledosprey/meshcore-web:latest
+    container_name: meshcore-web
+    restart: unless-stopped
+    ports:
+      - "8080:8000"
+    devices:
+      # udev symlink pinned to the radio's USB serial, so a replug or a reboot
+      # cannot renumber it away. See the install notes in README.md.
+      - "/dev/meshcore:/dev/ttyACM0"
+    volumes:
+      - meshcore-data:/data
+    environment:
+      MESH_PORT: /dev/ttyACM0
+      MESH_BAUD: "115200"
+      MESH_PASSWORD_FILE: /data/passwords.json
+      MESH_MESSAGE_FILE: /data/messages.json
+      TZ: ${TZ:-Etc/UTC}
+    group_add:
+      - "20"   # dialout on Debian/Ubuntu hosts
+
+volumes:
+  meshcore-data:

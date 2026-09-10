@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1116">
+<title>MeshCore Console</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>📡</text></svg>">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">📡</span>
+    <div class="brand-text">
+      <strong id="nodeName">MeshCore</strong>
+      <span id="nodeSub" class="sub">connecting…</span>
+    </div>
+  </div>
+  <div class="topbar-mid" id="radioSummary"></div>
+  <div class="topbar-right">
+    <span id="linkPill" class="pill pill-wait">link…</span>
+    <button class="btn btn-ghost icon-only" id="btnRefresh" title="Reload contacts">⟳</button>
+  </div>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button class="tab active" data-tab="dash" role="tab">Dashboard</button>
+  <button class="tab" data-tab="chat" role="tab">Chat <span class="badge" id="chatBadge" hidden>0</span></button>
+  <button class="tab" data-tab="contacts" role="tab">Contacts <span class="badge" id="ctcCount">0</span></button>
+  <button class="tab" data-tab="repeaters" role="tab">Repeaters <span class="badge" id="repCount">0</span></button>
+  <button class="tab" data-tab="console" role="tab">Console</button>
+  <button class="tab" data-tab="node" role="tab">Node</button>
+</nav>
+
+<main>
+  <!-- ---------------- Dashboard ---------------- -->
+  <section class="panel active" id="tab-dash">
+    <div class="dash-grid">
+      <div class="col-main">
+        <div class="card">
+          <h2>Quick actions</h2>
+          <div class="actions">
+            <button class="btn btn-primary" data-act="advert">Send advert</button>
+            <button class="btn" data-act="floodadv">Flood advert</button>
+            <button class="btn" data-act="discoveradd">Find &amp; add nodes</button>
+            <button class="btn" data-act="clocksync">Sync clock</button>
+            <button class="btn" data-act="selftel">Self telemetry</button>
+            <button class="btn" data-act="card">Export node card</button>
+            <button class="btn btn-danger" data-act="reboot">Reboot node</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Node</h2>
+          <dl class="kv" id="nodeStats"></dl>
+        </div>
+
+        <div class="card" id="resultCard" hidden>
+          <h2>Result <button class="btn btn-ghost btn-sm" id="clearResult">clear</button></h2>
+          <div class="out" id="resultOut"></div>
+        </div>
+      </div>
+
+      <aside class="col-side">
+        <div class="card card-fill">
+          <h2>Live events
+            <label class="chk"><input type="checkbox" id="autoscroll" checked> follow</label>
+          </h2>
+          <div class="log" id="eventLog"></div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ---------------- Chat ---------------- -->
+  <section class="panel" id="tab-chat">
+    <div class="chat">
+      <aside class="chat-side">
+        <div class="chat-side-head">
+          <span>Channels</span>
+          <button class="btn btn-ghost btn-sm" id="btnAddChan" title="Add channel">+</button>
+        </div>
+        <div id="chanList" class="chat-list"></div>
+        <div class="chat-side-head"><span>Direct</span></div>
+        <div id="dmList" class="chat-list"></div>
+      </aside>
+      <div class="chat-main">
+        <div class="chat-head">
+          <strong id="chatTitle">#public</strong>
+          <span id="chatSub" class="sub"></span>
+          <button class="btn btn-ghost btn-sm" id="btnDelChan" hidden>remove channel</button>
+        </div>
+        <div class="chat-msgs" id="chatMsgs"></div>
+        <form class="chat-input" id="chatForm">
+          <input id="chatText" type="text" placeholder="Message #public"
+                 autocomplete="off" maxlength="160">
+          <button class="btn btn-primary" type="submit">Send</button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------------- Repeaters ---------------- -->
+  <section class="panel" id="tab-repeaters">
+    <div class="card">
+      <h2>Add a repeater</h2>
+      <div class="row">
+        <input id="importUri" type="text" placeholder="meshcore://… contact URI" autocapitalize="off" spellcheck="false">
+        <button class="btn btn-primary" id="btnImport">Import</button>
+      </div>
+      <p class="hint">Or press <b>Discover repeaters</b> on the dashboard, then have the repeater send an advert.</p>
+    </div>
+    <div id="repeaterList" class="rep-grid"></div>
+  </section>
+
+  <!-- ---------------- Contacts ---------------- -->
+  <section class="panel" id="tab-contacts">
+    <div class="card">
+      <div class="ctc-bar">
+        <input id="ctcSearch" type="text" placeholder="Search name or key…"
+               autocapitalize="off" spellcheck="false">
+        <div class="seg" id="ctcFilter">
+          <button class="seg-btn on" data-f="all">All</button>
+          <button class="seg-btn" data-f="1">Companions</button>
+          <button class="seg-btn" data-f="2">Repeaters</button>
+          <button class="seg-btn" data-f="3">Rooms</button>
+          <button class="seg-btn" data-f="4">Sensors</button>
+        </div>
+        <button class="btn" id="ctcRefresh">Reload</button>
+      </div>
+    </div>
+    <div id="ctcList" class="ctc-list"></div>
+  </section>
+
+  <!-- ---------------- Console ---------------- -->
+  <section class="panel" id="tab-console">
+    <div class="card card-fill console-card">
+      <h2>meshcli console
+        <button class="btn btn-ghost btn-sm" id="btnClearTerm">clear</button>
+      </h2>
+      <div class="term" id="term"></div>
+      <form class="term-input" id="cliForm">
+        <span class="prompt">&gt;</span>
+        <input id="cliInput" type="text" autocomplete="off" autocapitalize="off"
+               autocorrect="off" spellcheck="false" placeholder="type a command — try  ?  or  infos">
+        <button class="btn btn-primary" type="submit">Run</button>
+      </form>
+      <div class="quickcmds" id="quickCmds"></div>
+    </div>
+  </section>
+
+  <!-- ---------------- Node settings ---------------- -->
+  <section class="panel" id="tab-node">
+    <div class="dash-grid">
+      <div class="col-main">
+        <div class="card">
+          <h2>Radio</h2>
+          <p class="hint">Every node in your mesh must match these exactly or they will never hear each other.</p>
+          <div class="grid-form">
+            <label>Frequency (MHz)<input id="rFreq" type="number" step="0.001" inputmode="decimal"></label>
+            <label>Bandwidth (kHz)<input id="rBw" type="number" step="0.1" inputmode="decimal"></label>
+            <label>Spreading factor<input id="rSf" type="number" min="5" max="12" inputmode="numeric"></label>
+            <label>Coding rate<input id="rCr" type="number" min="5" max="8" inputmode="numeric"></label>
+          </div>
+          <div class="actions">
+            <button class="btn btn-primary" id="btnRadio">Apply radio settings</button>
+            <button class="btn" data-preset="869.618,62.5,8,5">EU 869.618</button>
+            <button class="btn" data-preset="910.525,62.5,7,5">US/CA 910.525</button>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Auto-add contacts</h2>
+          <p class="hint">Which advert types become contacts on their own.
+            A node that adds nobody cannot decrypt direct messages from them —
+            the decryption key comes from the sender's advert.</p>
+          <div class="actions" style="gap:14px;margin-bottom:12px">
+            <label class="chk" style="margin:0"><input type="checkbox" id="aaChat"> companions</label>
+            <label class="chk" style="margin:0"><input type="checkbox" id="aaRep"> repeaters</label>
+            <label class="chk" style="margin:0"><input type="checkbox" id="aaRoom"> rooms</label>
+            <label class="chk" style="margin:0"><input type="checkbox" id="aaSensor"> sensors</label>
+            <label class="chk" style="margin:0"><input type="checkbox" id="aaOver"> overwrite existing</label>
+          </div>
+          <div class="actions">
+            <button class="btn btn-primary" id="btnAutoAdd">Apply</button>
+            <span class="hint" id="aaNow" style="margin:0;align-self:center"></span>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Identity</h2>
+          <div class="grid-form">
+            <label>Node name<input id="nName" type="text" autocapitalize="off"></label>
+            <label>TX power (dBm)<input id="nTx" type="number" min="1" max="30" inputmode="numeric"></label>
+          </div>
+          <div class="actions">
+            <button class="btn btn-primary" id="btnName">Set name</button>
+            <button class="btn" id="btnTx">Set TX power</button>
+          </div>
+        </div>
+      </div>
+      <aside class="col-side">
+        <div class="card">
+          <h2>Device</h2>
+          <dl class="kv" id="deviceStats"></dl>
+        </div>
+      </aside>
+    </div>
+  </section>
+</main>
+
+<div id="toasts" class="toasts"></div>
+
+<div class="sheet-backdrop" id="chanBackdrop" hidden>
+  <div class="sheet" role="dialog" aria-modal="true">
+    <div class="sheet-head">
+      <strong>Add channel</strong>
+      <button class="btn btn-ghost icon-only" id="chanClose">&#10005;</button>
+    </div>
+    <div class="sheet-body">
+      <p class="hint">Everyone on the channel needs the same name and key.
+        Leave the key blank to generate one, then share it with the others.</p>
+      <div class="grid-form">
+        <label>Channel name<input id="chanName" type="text" maxlength="32"
+               autocapitalize="off" spellcheck="false"></label>
+        <label>Shared key (32 hex chars, optional)
+          <input id="chanKey" type="text" maxlength="32" autocapitalize="off"
+                 spellcheck="false" placeholder="leave blank to generate"></label>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" id="chanCreate">Create channel</button>
+      </div>
+      <pre class="out" id="chanOut" style="margin-top:12px" hidden></pre>
+    </div>
+  </div>
+</div>
+
+<!-- repeater command sheet -->
+<div class="sheet-backdrop" id="sheetBackdrop" hidden>
+  <div class="sheet" role="dialog" aria-modal="true">
+    <div class="sheet-head">
+      <strong id="sheetTitle">Repeater</strong>
+      <button class="btn btn-ghost icon-only" id="sheetClose">✕</button>
+    </div>
+    <div class="sheet-body" id="sheetBody"></div>
+  </div>
+</div>
+
+<script src="/static/fmt.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

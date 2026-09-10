@@ -1,0 +1,14 @@
+{$MESH_HOSTNAME} {
+	tls {
+		dns cloudflare {$CF_API_TOKEN}
+		resolvers 1.1.1.1
+	}
+
+	encode zstd gzip
+
+	# The event stream and console are websockets; reverse_proxy handles the
+	# upgrade, but the console can sit idle between commands.
+	reverse_proxy meshcore-web:8000 {
+		flush_interval -1
+	}
+}
