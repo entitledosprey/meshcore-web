@@ -1,7 +1,12 @@
 {$MESH_HOSTNAME} {
 	tls {
 		dns cloudflare {$CF_API_TOKEN}
-		resolvers 1.1.1.1
+		# No `resolvers` here on purpose: pointing the propagation check at a
+		# recursive resolver means the challenge name gets looked up before it
+		# exists, and the resulting NXDOMAIN is cached negatively for far longer
+		# than the challenge lasts. Checking the authoritative servers avoids it.
+		propagation_delay 20s
+		propagation_timeout 5m
 	}
 
 	encode zstd gzip
