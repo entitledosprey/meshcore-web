@@ -190,6 +190,8 @@ const F = (() => {
       case 'DEVICE_INFO':   return `${o.model || 'device'} · ${o.ver || ''}`.trim();
       case 'SELF_INFO':     return `node info · ${o.name || ''}`.trim();
       case 'CURRENT_TIME':  return o.time ? new Date(o.time * 1000).toLocaleString() : 'clock read';
+      case 'clock_synced':
+        return `node clock corrected (was off by ${dur(Math.abs(o.drift_seconds || 0))})`;
       case 'connected':     return `radio connected on ${o.port || '?'}`;
       case 'disconnected':  return `radio disconnected — ${o.reason || 'unknown'}`;
       case 'DISCONNECTED':  return `link lost — ${o.reason || 'unknown'}`;

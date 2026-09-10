@@ -194,6 +194,13 @@ async def reboot():
     return await _run(["reboot"], json_output=False, timeout=20)
 
 
+@app.get("/api/node/clock")
+async def clock_status():
+    drift = await mesh.clock_drift()
+    return {"ok": True, "drift_seconds": drift,
+            "stale": drift is not None and abs(drift) > 60}
+
+
 @app.post("/api/node/clock-sync")
 async def clock_sync():
     return await _run(["clock", "sync"], json_output=False, timeout=20)
@@ -394,6 +401,15 @@ async def set_password(key: str, r: PasswordReq):
     mesh.passwords.set(pk, r.password)   # login() reads it from the store
     mesh.forget_login(pk)
     ok, msg = await mesh.login(c)
+
+    if not ok:
+        # A stale node clock fails timestamp-signed logins and looks exactly
+        # like a bad password. Checked here, outside the command lock.
+        drift = await mesh.clock_drift()
+        if drift is not None and abs(drift) > 60:
+            msg += (f" — but this node's clock is off by {int(abs(drift))}s, "
+                    f"which breaks logins regardless of the password. "
+                    f"Sync the clock and try again.")
 
     keep = ok and r.remember
     if not keep:

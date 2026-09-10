@@ -227,11 +227,17 @@ class MeshManager:
             try:
                 await self._connect()
                 delay = 2
+                ticks = 0
                 while self.connected and not self._stopping:
                     await asyncio.sleep(2)
                     if self.mc is None or not self.mc.is_connected:
                         self.connected = False
                         self.emit("disconnected", {"reason": "link dropped"})
+                        break
+                    ticks += 1
+                    if ticks % 1800 == 0:      # roughly hourly
+                        with contextlib.suppress(Exception):
+                            await self._sync_clock(self.mc)
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -257,9 +263,44 @@ class MeshManager:
             res = await mc.commands.send_device_query()
             self.device_info = res.payload or {}
         with contextlib.suppress(Exception):
+            await self._sync_clock(mc)
+        with contextlib.suppress(Exception):
             await mc.ensure_contacts()
         await mc.start_auto_message_fetching()
         self.emit("connected", {"port": self.port, **self.device_info})
+
+    async def _sync_clock(self, mc, max_drift: float = 30.0) -> float | None:
+        """Match the node's clock to ours when it has drifted.
+
+        The board has no battery-backed RTC, so every power cycle puts it back
+        at its build date. Repeater logins are timestamp-signed, so a stale
+        clock makes a correct password look rejected. Caller must not hold the
+        lock; this takes it.
+        """
+        async with self._lock:
+            res = await asyncio.wait_for(mc.commands.get_time(), timeout=20)
+            dev = (res.payload or {}).get("time") if res else None
+            if not dev:
+                return None
+            now = int(time.time())
+            drift = now - int(dev)
+            if abs(drift) <= max_drift:
+                return drift
+            await asyncio.wait_for(mc.commands.set_time(now), timeout=20)
+        self.emit("clock_synced", {"drift_seconds": drift, "set_to": now})
+        log.info("node clock was off by %ss; synced", drift)
+        return drift
+
+    async def clock_drift(self) -> float | None:
+        """Seconds the node's clock is behind ours, or None if unreadable."""
+        try:
+            async with self._lock:
+                res = await asyncio.wait_for(
+                    self.require().commands.get_time(), timeout=15)
+            dev = (res.payload or {}).get("time") if res else None
+            return None if not dev else time.time() - int(dev)
+        except Exception:
+            return None
 
     def _on_event(self, ev) -> None:
         name = getattr(ev.type, "name", str(ev.type))
@@ -396,9 +437,11 @@ class MeshManager:
         except Exception as e:
             return False, f"login error: {type(e).__name__}: {e}"
         name = getattr(getattr(res, "type", None), "name", "")
-        if res is None or name in {"ERROR", "LOGIN_FAILED"}:
+        if res is None:
+            return False, "no reply from repeater"
+        if name in {"ERROR", "LOGIN_FAILED"}:
             self._logins.pop(pk, None)
-            return False, "login rejected (wrong password?)"
+            return False, "repeater rejected the password"
         self._logins[pk] = time.monotonic()
         return True, "logged in"
 

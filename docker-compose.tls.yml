@@ -19,6 +19,10 @@ services:
     environment:
       MESH_HOSTNAME: ${MESH_HOSTNAME:?set MESH_HOSTNAME in .env}
       CF_API_TOKEN: ${CF_API_TOKEN:?set CF_API_TOKEN in .env}
+      MESH_BASIC_USER: ${MESH_BASIC_USER:?set MESH_BASIC_USER in .env}
+      # bcrypt hash from `caddy hash-password`. Compose treats $ as
+      # interpolation, so the value in .env must escape each $ as $$.
+      MESH_BASIC_HASH: ${MESH_BASIC_HASH:?set MESH_BASIC_HASH in .env}
     depends_on:
       - meshcore-web
 

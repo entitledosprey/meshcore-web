@@ -87,6 +87,7 @@ const KIND_LABEL = {
   DEVICE_INFO: 'device', SELF_INFO: 'node', CURRENT_TIME: 'clock',
   PATH_UPDATE: 'path', LOGIN_SUCCESS: 'login', LOGIN_FAILED: 'login',
   CONTACTS: 'contacts', DISCONNECTED: 'link', ERROR: 'error',
+  clock_synced: 'clock', contacts_updated: 'contacts',
 };
 const prettyKind = (k) => KIND_LABEL[k] || String(k).toLowerCase().replace(/_/g, ' ');
 

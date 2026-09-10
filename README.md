@@ -81,7 +81,15 @@ bring it up alongside the base compose file:
 docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d
 ```
 
-The API token needs `Zone:DNS:Edit` on the zone only. Point an A record for
+The API token needs `Zone:DNS:Edit` on the zone only.
+
+The same file gates the site behind HTTP basic auth. Generate a hash and note
+that Compose reads `$` as interpolation, so each one must be doubled in `.env`:
+
+```sh
+docker run --rm ghcr.io/caddybuilds/caddy-cloudflare:2.11.4 \
+  caddy hash-password --plaintext 'your-password' | sed 's/\$/$$/g'
+``` Point an A record for
 the hostname at the host's LAN address, DNS-only (not proxied) — the DNS-01
 challenge proves ownership without the host being reachable from outside.
 

@@ -14,6 +14,12 @@
 		propagation_timeout -1
 	}
 
+	# The app itself has no auth, so this gate is the only thing between the
+	# LAN and repeater reboots, saved repeater passwords and message history.
+	basic_auth {
+		{$MESH_BASIC_USER} {$MESH_BASIC_HASH}
+	}
+
 	encode zstd gzip
 
 	# The event stream and console are websockets; reverse_proxy handles the

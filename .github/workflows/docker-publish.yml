@@ -67,8 +67,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Informational: the image is already pushed by this point, so an
+      # outage of GitHub's attestation service must not fail the publish.
       - name: Attest provenance
         if: github.event_name != 'pull_request'
+        continue-on-error: true
         uses: actions/attest-build-provenance@v2
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
