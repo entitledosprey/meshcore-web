@@ -441,15 +441,26 @@ async def logout(key: str):
 async def repeater_cmd(key: str, r: CmdReq):
     """Send a CLI command to a repeater and wait for its reply."""
     c = _contact_or_404(key)
-    return await _run(["cmd", c["adv_name"], r.cmd, "wmt8"], json_output=False,
-                      timeout=90, login_contact=c)
+    try:
+        res = await mesh.repeater_command(c, r.cmd)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return {"ok": res["ok"], "command": r.cmd, "text": res["text"],
+            "data": _maybe_json(res["text"]),
+            "auth": {"has_password": mesh.has_password(c["public_key"]),
+                     "logged_in": mesh.is_logged_in(c["public_key"])}}
 
 
 @app.post("/api/contact/{key}/reboot")
 async def repeater_reboot(key: str):
+    """A rebooting repeater will not answer, so don't wait long for a reply."""
     c = _contact_or_404(key)
-    return await _run(["cmd", c["adv_name"], "reboot"], json_output=False,
-                      timeout=45, login_contact=c)
+    try:
+        res = await mesh.repeater_command(c, "reboot", timeout=8)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    text = res["text"] if res["ok"] else "reboot sent (no reply expected)"
+    return {"ok": True, "command": "reboot", "text": text, "data": None}
 
 
 @app.delete("/api/contact/{key}")

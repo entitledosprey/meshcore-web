@@ -445,6 +445,52 @@ class MeshManager:
         self._logins[pk] = time.monotonic()
         return True, "logged in"
 
+    async def repeater_command(self, contact: dict, cmd: str,
+                               timeout: float = 30.0) -> dict:
+        """Send a CLI command to a repeater and return its reply.
+
+        meshcli's `wmt8` races the auto message fetcher for the reply: both
+        consume from the same queue, so whichever wins decides whether the
+        command appears to work. Subscribing to the event stream *before*
+        sending removes the race -- the reply is dispatched to every
+        subscriber, so it cannot be swallowed.
+        """
+        from meshcore import EventType
+
+        mc = self.require()
+        key = contact.get("public_key") or ""      # as stored, for the password store
+        pk = key.lower()                           # for prefix matching on replies
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future = loop.create_future()
+
+        def on_msg(ev):
+            p = ev.payload if isinstance(ev.payload, dict) else {}
+            pre = str(p.get("pubkey_prefix") or "").lower()
+            if pre and pk.startswith(pre) and not fut.done():
+                fut.set_result(p.get("text") or "")
+
+        sub = mc.subscribe(EventType.CONTACT_MSG_RECV, on_msg)
+        try:
+            async with self._lock:
+                if self.has_password(key) and not self.is_logged_in(key):
+                    ok, msg = await self._login_locked(mc, contact)
+                    if not ok:
+                        return {"ok": False, "text": f"[{msg}]"}
+                res = await asyncio.wait_for(
+                    mc.commands.send_cmd(contact, cmd), timeout=25)
+            if getattr(getattr(res, "type", None), "name", "") == "ERROR":
+                return {"ok": False, "text": f"[send failed: {res.payload}]"}
+            # Lock released: a slow repeater must not block the whole app.
+            try:
+                text = await asyncio.wait_for(fut, timeout=timeout)
+            except asyncio.TimeoutError:
+                return {"ok": False,
+                        "text": f"[no reply within {timeout:.0f}s — the "
+                                f"repeater may be out of range or busy]"}
+            return {"ok": True, "text": text}
+        finally:
+            mc.unsubscribe(sub)
+
     async def login(self, contact: dict) -> tuple[bool, str]:
         async with self._lock:
             mc = self.require()
