@@ -336,7 +336,8 @@ function openSheet(key) {
         <button class="btn btn-primary" id="repSend">Send</button>
       </div>
       <div class="quickcmds">
-        ${['ver','clock','get freq','get tx','advert','neighbors','status','log start','log stop']
+        ${['ver','clock','get name','get freq','get tx','advert','neighbors',
+           'log start','log stop']
           .map((q) => `<button class="qc" data-q="${esc(q)}">${esc(q)}</button>`).join('')}
       </div>
       <div class="out" id="repOut" style="margin-top:12px" hidden></div>
