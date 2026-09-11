@@ -1,21 +1,26 @@
-/* MeshCore console — styled after bench radio equipment: an anodised front
-   panel with silkscreened legends and a backlit readout. Monospace is the
-   interface voice (panel legends are monospaced); a serif carries prose, the
-   way an equipment manual does. Amber is reserved for measured values, so
-   colour on this page always means live data rather than decoration. */
+/* MeshCore console — styled after field radio equipment: a grey panel with
+   black recessed wells and silkscreened legends. Monospace is the interface
+   voice, because panel legends are monospaced; a serif carries prose the way
+   an equipment manual does.
+
+   Two accents, each with one job, so colour always carries meaning:
+     blue        anything measured — frequencies, signal, counts, readouts
+     army green  affirmative state — connected, selected, yours, confirmed
+   Red appears only for faults. Nothing is coloured for decoration. */
 
 :root{
-  --panel:#211f1b;        /* warm anodised graphite */
-  --recess:#191713;       /* milled wells: logs, readouts, inputs */
-  --raised:#2a2721;       /* key caps */
-  --rule:#3a352d;
-  --rule-soft:#2f2b24;
-  --ink:#ece5d6;          /* warm bone, not white */
-  --ink-dim:#9a927f;
-  --ink-faint:#6d665a;
-  --signal:#e0a339;       /* amber: measured values only */
-  --healthy:#8ca85e;
-  --fault:#c4553a;
+  --panel:#23272b;        /* grey panel face */
+  --recess:#111417;       /* black milled wells: logs, readouts, inputs */
+  --raised:#2d3237;       /* key caps */
+  --rule:#3d444b;
+  --rule-soft:#31363b;
+  --ink:#dde2e6;
+  --ink-dim:#a4acb3;
+  --ink-faint:#878f96;
+  --signal:#5d9fd6;       /* blue: measured values only */
+  --active:#8ba455;       /* army green: state and selection */
+  --healthy:#8ba455;
+  --fault:#d97c72;        /* faults only */
   --legend:ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace;
   --prose:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
   --bezel:3px;            /* machined bezel radius; wells stay square */
@@ -23,17 +28,18 @@
 }
 @media (prefers-color-scheme: light){
   :root{
-    --panel:#dcd7c9;      /* printed manual stock */
-    --recess:#efebe0;
-    --raised:#d1cbbb;
-    --rule:#b4ad9b;
-    --rule-soft:#c6c0af;
-    --ink:#241f17;
-    --ink-dim:#5d5648;
-    --ink-faint:#847c6b;
-    --signal:#8a5a10;
-    --healthy:#4c6524;
-    --fault:#95331d;
+    --panel:#d6dadd;
+    --recess:#eef1f3;
+    --raised:#c7ccd0;
+    --rule:#a6adb3;
+    --rule-soft:#bcc2c7;
+    --ink:#171b1f;
+    --ink-dim:#4d555c;
+    --ink-faint:#576067;
+    --signal:#1a5991;
+    --active:#465428;
+    --healthy:#465428;
+    --fault:#8f2f26;
   }
 }
 *{box-sizing:border-box}
@@ -45,8 +51,8 @@ body{
   -webkit-text-size-adjust:100%;
 }
 button,input,select{font:inherit;color:inherit}
-::selection{background:var(--signal);color:var(--panel)}
-:focus-visible{outline:2px solid var(--signal);outline-offset:1px}
+::selection{background:var(--active);color:var(--panel)}
+:focus-visible{outline:2px solid var(--active);outline-offset:1px}
 
 /* ---- front-panel readout ------------------------------------------- */
 .topbar{
@@ -105,12 +111,12 @@ button,input,select{font:inherit;color:inherit}
   white-space:nowrap;min-height:var(--tap);
 }
 .tab:hover{color:var(--ink)}
-.tab.active{color:var(--signal);border-bottom-color:var(--signal)}
+.tab.active{color:var(--active);border-bottom-color:var(--active)}
 .badge{
   display:inline-block;margin-left:7px;font-size:11px;
   color:var(--ink-faint);letter-spacing:0;
 }
-.tab.active .badge{color:var(--signal)}
+.tab.active .badge{color:var(--active)}
 
 /* ---- layout: one panel face, divided by rules ---------------------- */
 main{padding:0 22px 48px;max-width:1760px;margin:0 auto}
@@ -160,8 +166,8 @@ main{padding:0 22px 48px;max-width:1760px;margin:0 auto}
 .btn:hover:not(:disabled){border-color:var(--ink-faint)}
 .btn:active:not(:disabled){box-shadow:inset 0 2px 3px rgba(0,0,0,.4);transform:translateY(1px)}
 .btn:disabled{opacity:.4;cursor:not-allowed}
-.btn-primary{border-color:var(--signal);color:var(--signal)}
-.btn-primary:hover:not(:disabled){background:var(--signal);color:var(--panel)}
+.btn-primary{border-color:var(--active);color:var(--active)}
+.btn-primary:hover:not(:disabled){background:var(--active);color:var(--panel)}
 .btn-danger{color:var(--fault);border-color:color-mix(in srgb,var(--fault) 45%,transparent)}
 .btn-danger:hover:not(:disabled){background:var(--fault);color:var(--panel);border-color:var(--fault)}
 .btn-ghost{background:none;border-color:transparent;color:var(--ink-faint)}
@@ -171,7 +177,7 @@ main{padding:0 22px 48px;max-width:1760px;margin:0 auto}
 .btn.busy{color:transparent!important;position:relative}
 .btn.busy::after{
   content:"";position:absolute;width:5px;height:5px;border-radius:50%;
-  background:var(--signal);animation:pulse .9s ease-in-out infinite;
+  background:var(--active);animation:pulse .9s ease-in-out infinite;
 }
 @keyframes pulse{0%,100%{opacity:.25}50%{opacity:1}}
 @media (prefers-reduced-motion:reduce){
@@ -200,14 +206,14 @@ input[type=text],input[type=number],input[type=password]{
   box-shadow:inset 0 1px 3px rgba(0,0,0,.35);
 }
 input::placeholder{color:var(--ink-faint)}
-input:focus{outline:1px solid var(--signal);outline-offset:0;border-color:var(--signal)}
+input:focus{outline:1px solid var(--active);outline-offset:0;border-color:var(--active)}
 .grid-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:16px}
 .grid-form label{display:flex;flex-direction:column;gap:6px;font-size:11px;color:var(--ink-dim);letter-spacing:.04em}
 .chk{
   display:inline-flex;align-items:center;gap:6px;font-size:11px;
   color:var(--ink-dim);cursor:pointer;letter-spacing:.04em;
 }
-.chk input{accent-color:var(--signal)}
+.chk input{accent-color:var(--active)}
 
 /* ---- readouts and logs: recessed wells ------------------------------ */
 .out{
@@ -255,9 +261,9 @@ pre.raw{margin:0;font:inherit;white-space:pre-wrap;word-break:break-word}
 .log-k{flex-shrink:0;width:8.5ch;color:var(--ink-dim);letter-spacing:.04em}
 .log-p{color:var(--ink-dim);word-break:break-word;min-width:0}
 .k-rf,.k-advert,.k-discover{color:var(--signal)}
-.k-connected,.k-login{color:var(--healthy)}
+.k-connected,.k-login{color:var(--active)}
 .k-disconnected,.k-error,.k-link{color:var(--fault)}
-.k-message,.k-channel{color:var(--healthy)}
+.k-message,.k-channel{color:var(--active)}
 .log-raw{
   margin:3px 0 7px 0;padding:8px 10px;background:var(--panel);
   border-left:2px solid var(--signal);font-size:11px;line-height:1.55;
@@ -284,8 +290,8 @@ pre.raw{margin:0;font:inherit;white-space:pre-wrap;word-break:break-word}
   margin-left:auto;flex-shrink:0;font-size:10.5px;letter-spacing:.09em;
   color:var(--ink-faint);padding:0;background:none;border-radius:0;
 }
-.tag-rep{color:var(--signal)}
-.tag-room{color:var(--healthy)}
+.tag-rep{color:var(--active)}
+.tag-room{color:var(--signal)}
 .tag-chat{color:var(--ink-dim)}
 .rep-meta{
   display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));
@@ -308,7 +314,7 @@ pre.raw{margin:0;font:inherit;white-space:pre-wrap;word-break:break-word}
 }
 .seg-btn:last-child{border-right:0}
 .seg-btn:hover{color:var(--ink)}
-.seg-btn.on{background:var(--signal);color:var(--panel)}
+.seg-btn.on{background:var(--active);color:var(--panel)}
 
 /* ---- console -------------------------------------------------------- */
 .console-card{min-height:calc(100vh - 200px)}
@@ -318,11 +324,11 @@ pre.raw{margin:0;font:inherit;white-space:pre-wrap;word-break:break-word}
   white-space:pre-wrap;word-break:break-word;min-height:230px;
   box-shadow:inset 0 1px 4px rgba(0,0,0,.3);
 }
-.term-echo{color:var(--signal);margin-top:12px}
+.term-echo{color:var(--active);margin-top:12px}
 .term-echo:first-child{margin-top:0}
 .term-err{color:var(--fault)}
 .term-input{display:flex;gap:8px;align-items:center;margin-top:10px}
-.term-input .prompt{color:var(--signal)}
+.term-input .prompt{color:var(--active)}
 .term-input input{flex:1}
 .quickcmds{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
 .qc{
@@ -330,7 +336,7 @@ pre.raw{margin:0;font:inherit;white-space:pre-wrap;word-break:break-word}
   border-radius:0;padding:4px 9px;font:inherit;font-size:11.5px;
   cursor:pointer;min-height:26px;
 }
-.qc:hover{color:var(--signal);border-color:var(--signal)}
+.qc:hover{color:var(--active);border-color:var(--active)}
 
 /* ---- chat ----------------------------------------------------------- */
 .chat{
@@ -356,9 +362,9 @@ pre.raw{margin:0;font:inherit;white-space:pre-wrap;word-break:break-word}
   cursor:pointer;font-size:13px;overflow:hidden;white-space:nowrap;
 }
 .chat-item:hover{color:var(--ink)}
-.chat-item.on{border-left-color:var(--signal);color:var(--signal);background:var(--recess)}
+.chat-item.on{border-left-color:var(--active);color:var(--active);background:var(--recess)}
 .chat-item .hash{color:var(--ink-faint);margin-right:3px}
-.chat-item.on .hash{color:var(--signal)}
+.chat-item.on .hash{color:var(--active)}
 .ci-name{flex:1;overflow:hidden;text-overflow:ellipsis}
 .ci-badge{
   flex-shrink:0;font-size:11px;color:var(--signal);
@@ -385,7 +391,7 @@ pre.raw{margin:0;font:inherit;white-space:pre-wrap;word-break:break-word}
   padding:9px 13px;background:var(--recess);border:1px solid var(--rule-soft);
   word-break:break-word;white-space:pre-wrap;
 }
-.msg-out .msg-body{border-color:var(--signal);background:none}
+.msg-out .msg-body{border-color:var(--active);background:none}
 .msg-meta{font-size:10.5px;color:var(--ink-faint);margin-top:4px;font-variant-numeric:tabular-nums}
 .msg-out .msg-meta{text-align:right}
 .chat-input{display:flex;gap:8px;padding:12px 0 0;border-top:1px solid var(--rule-soft)}
@@ -456,7 +462,7 @@ pre.raw{margin:0;font:inherit;white-space:pre-wrap;word-break:break-word}
   .chat-item{
     width:auto;padding:0 12px;border-left:0;border-bottom:2px solid transparent;
   }
-  .chat-item.on{border-left:0;border-bottom-color:var(--signal)}
+  .chat-item.on{border-left:0;border-bottom-color:var(--active)}
   .chat-main{padding-left:0;height:calc(100dvh - 300px);min-height:320px}
   .console-card{min-height:calc(100dvh - 190px)}
   .term-input input,.chat-input input,.ctc-bar input{font-size:16px}  /* no iOS zoom */
