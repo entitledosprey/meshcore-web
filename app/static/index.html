@@ -39,7 +39,7 @@
     <div class="dash-grid">
       <div class="col-main">
         <div class="card">
-          <h2>Quick actions</h2>
+          <h2>Transmit</h2>
           <div class="actions">
             <button class="btn btn-primary" data-act="advert">Send advert</button>
             <button class="btn" data-act="floodadv">Flood advert</button>
@@ -52,7 +52,7 @@
         </div>
 
         <div class="card">
-          <h2>Node</h2>
+          <h2>This node</h2>
           <dl class="kv" id="nodeStats"></dl>
         </div>
 
@@ -64,9 +64,7 @@
 
       <aside class="col-side">
         <div class="card card-fill">
-          <h2>Live events
-            <label class="chk"><input type="checkbox" id="autoscroll" checked> follow</label>
-          </h2>
+          <h2>Received<label class="chk"><input type="checkbox" id="autoscroll" checked> follow</label></h2>
           <div class="log" id="eventLog"></div>
         </div>
       </aside>
@@ -104,12 +102,12 @@
   <!-- ---------------- Repeaters ---------------- -->
   <section class="panel" id="tab-repeaters">
     <div class="card">
-      <h2>Add a repeater</h2>
+      <h2>Add by contact URI</h2>
       <div class="row">
         <input id="importUri" type="text" placeholder="meshcore://… contact URI" autocapitalize="off" spellcheck="false">
         <button class="btn btn-primary" id="btnImport">Import</button>
       </div>
-      <p class="hint">Or press <b>Discover repeaters</b> on the dashboard, then have the repeater send an advert.</p>
+      <p class="hint">A repeater joins the list on its own once it advertises. To add one now, paste the URI from its console, or run <b>Find &amp; add nodes</b>.</p>
     </div>
     <div id="repeaterList" class="rep-grid"></div>
   </section>
@@ -136,14 +134,14 @@
   <!-- ---------------- Console ---------------- -->
   <section class="panel" id="tab-console">
     <div class="card card-fill console-card">
-      <h2>meshcli console
+      <h2>Command line
         <button class="btn btn-ghost btn-sm" id="btnClearTerm">clear</button>
       </h2>
       <div class="term" id="term"></div>
       <form class="term-input" id="cliForm">
         <span class="prompt">&gt;</span>
         <input id="cliInput" type="text" autocomplete="off" autocapitalize="off"
-               autocorrect="off" spellcheck="false" placeholder="type a command — try  ?  or  infos">
+               autocorrect="off" spellcheck="false" placeholder="try: infos, contacts, advert">
         <button class="btn btn-primary" type="submit">Run</button>
       </form>
       <div class="quickcmds" id="quickCmds"></div>
@@ -200,7 +198,7 @@
       </div>
       <aside class="col-side">
         <div class="card">
-          <h2>Device</h2>
+          <h2>Hardware</h2>
           <dl class="kv" id="deviceStats"></dl>
         </div>
       </aside>

@@ -195,9 +195,9 @@ function renderRepeaters() {
   const cs = (STATE.contacts || []).filter((c) => c.is_infra);
   if (!cs.length) {
     list.innerHTML = `<div class="card"><div class="empty">
-No repeaters or rooms yet.<br><br>Your node hears them only when they advertise
-      <b>on the same radio settings</b>. Check the Node tab, then use
-      <b>Discover repeaters</b> or import a contact URI above.</div></div>`;
+No repeaters yet. A repeater is only heard when its radio settings match
+      this node's exactly, so check those first on the Node tab. Then run
+      <b>Find &amp; add nodes</b>, or add one by URI above.</div></div>`;
     return;
   }
   list.innerHTML = cs.map(repCard).join('');
@@ -222,8 +222,8 @@ function repCard(c) {
       </div>${tag}
     </div>
     <div class="rep-meta">
-      <span>path: ${esc(path)}</span>
-      <span>advert: ${esc(ago(c.last_advert))}</span>
+      <span>${esc(path)}</span>
+      <span>heard ${esc(ago(c.last_advert))}</span>
       ${auth}
       ${c.adv_lat ? `<span>${c.adv_lat.toFixed(4)}, ${c.adv_lon.toFixed(4)}</span>` : ''}
     </div>
@@ -341,7 +341,7 @@ function openSheet(key) {
     <div class="card" style="background:var(--card2)">
       <h2>Send command</h2>
       <div class="row">
-        <input id="repCmd" type="text" placeholder="e.g. get freq · set name X · advert"
+        <input id="repCmd" type="text" placeholder="try: get freq, set name X, advert"
                autocapitalize="off" spellcheck="false">
         <button class="btn btn-primary" id="repSend">Send</button>
       </div>
@@ -617,7 +617,7 @@ function renderMessages() {
 
   if (ACTIVE.kind === 'channel') {
     $('#chatTitle').textContent = '#' + chanName(ACTIVE.id).toLowerCase();
-    $('#chatSub').textContent = `channel ${ACTIVE.id}`;
+    $('#chatSub').textContent = `slot ${ACTIVE.id}`;
     $('#btnDelChan').hidden = ACTIVE.id === 0;
     $('#chatText').placeholder = 'Message #' + chanName(ACTIVE.id).toLowerCase();
   } else {
@@ -632,13 +632,13 @@ function renderMessages() {
     const out = m.dir === 'out';
     const who = out ? mine : (m.sender || (m.kind === 'channel' ? 'unknown' : 'them'));
     const meta = [new Date(m.ts * 1000).toLocaleTimeString()];
-    if (m.snr != null) meta.push(`SNR ${m.snr}`);
+    if (m.snr != null) meta.push(`snr ${m.snr}dB`);
     return `<div class="msg${out ? ' msg-out' : ''}">
       <div class="msg-who">${esc(who)}</div>
       <div class="msg-body">${esc(m.text)}</div>
-      <div class="msg-meta">${esc(meta.join(' · '))}</div>
+      <div class="msg-meta">${esc(meta.join('   '))}</div>
     </div>`;
-  }).join('') : '<div class="empty">No messages yet. Say something.</div>';
+  }).join('') : '<div class="empty">Nothing here yet. Anything you send goes out over the air.</div>';
   box.scrollTop = box.scrollHeight;
 }
 
@@ -798,8 +798,8 @@ function ctcCard(c) {
       </div>${tag}
     </div>
     <div class="rep-meta">
-      <span>path: ${esc(path)}</span>
-      <span>advert: ${esc(ago(c.last_advert))}</span>
+      <span>${esc(path)}</span>
+      <span>heard ${esc(ago(c.last_advert))}</span>
       ${loc ? `<span>${esc(loc)}</span>` : ''}
     </div>
     <div class="actions">
@@ -886,7 +886,7 @@ $$('.tab').forEach((t) => t.onclick = () => {
 
 /* ---------------- boot ---------------- */
 
-logEl().innerHTML = '<div class="empty">waiting for events…</div>';
+logEl().innerHTML = '<div class="empty">Listening. Anything the radio hears shows up here.</div>';
 refreshState().catch(() => setLink(false));
 loadChat();
 loadAutoAdd();

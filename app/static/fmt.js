@@ -118,7 +118,7 @@ const F = (() => {
 
   function status(d) {
     const g = (k) => value(k, d[k]);
-    const head = `<div class="fmt-head">Up ${esc(dur(d.uptime))} · battery ${esc(volts(d.bat))}</div>`;
+    const head = `<div class="fmt-head">up ${esc(dur(d.uptime))}, battery ${esc(volts(d.bat))}</div>`;
     const order = ['bat', 'uptime', 'last_snr', 'last_rssi', 'noise_floor',
       'tx_queue_len', 'nb_sent', 'nb_recv', 'sent_direct', 'sent_flood',
       'recv_direct', 'recv_flood', 'direct_dups', 'flood_dups',
@@ -151,12 +151,12 @@ const F = (() => {
     switch (kind) {
       case 'RX_LOG_DATA': {
         const bytes = o.payload ? Math.floor(String(o.payload).length / 2) : null;
-        return `RF packet · SNR ${o.snr ?? '?'} dB · RSSI ${o.rssi ?? '?'} dBm`
-             + (bytes ? ` · ${bytes} B` : '');
+        return `snr ${o.snr ?? '?'}dB  rssi ${o.rssi ?? '?'}dBm`
+             + (bytes ? `  ${bytes}B` : '');
       }
       case 'DISCOVER_RESPONSE':
-        return `found ${nodeType(o.node_type)} ${shortKey(o.pubkey)}`
-             + ` · SNR ${o.SNR ?? '?'} dB · RSSI ${o.RSSI ?? '?'} dBm`;
+        return `${nodeType(o.node_type)} ${shortKey(o.pubkey)}`
+             + `  snr ${o.SNR ?? '?'}dB  rssi ${o.RSSI ?? '?'}dBm`;
       case 'ADVERTISEMENT':
         return `advert from ${o.adv_name || shortKey(o.public_key || o.pubkey) || 'unknown'}`;
       case 'NEW_CONTACT':
@@ -168,13 +168,13 @@ const F = (() => {
           const u = { voltage: 'V', temperature: '°C', humidity: '%' }[s.type] || '';
           return `${s.value}${u ? ' ' + u : ''}`;
         });
-        return `telemetry from ${shortKey(o.pubkey_pre || o.pubkey_prefix)}`
-             + (bits.length ? ` · ${bits.join(', ')}` : '');
+        return `${shortKey(o.pubkey_pre || o.pubkey_prefix)}`
+             + (bits.length ? `  ${bits.join('  ')}` : '');
       }
       case 'STATUS_RESPONSE':
-        return `status from ${shortKey(o.pubkey_pre || o.pubkey_prefix)}`
-             + (o.uptime !== undefined ? ` · up ${dur(o.uptime)}` : '')
-             + (o.bat !== undefined ? ` · ${volts(o.bat)}` : '');
+        return `${shortKey(o.pubkey_pre || o.pubkey_prefix)}`
+             + (o.uptime !== undefined ? `  up ${dur(o.uptime)}` : '')
+             + (o.bat !== undefined ? `  ${volts(o.bat)}` : '');
       case 'NEIGHBOURS_RESPONSE':
         return `${o.results_count ?? (o.neighbours || []).length} neighbour(s) reported`;
       case 'CONTACT_MSG_RECV':
@@ -187,8 +187,8 @@ const F = (() => {
       case 'LOGIN_FAILED':  return `login failed for ${shortKey(o.pubkey_pre)}`;
       case 'ACK':           return 'message acknowledged';
       case 'CONTACTS':      return 'contact list refreshed';
-      case 'DEVICE_INFO':   return `${o.model || 'device'} · ${o.ver || ''}`.trim();
-      case 'SELF_INFO':     return `node info · ${o.name || ''}`.trim();
+      case 'DEVICE_INFO':   return `${o.model || 'device'}  ${o.ver || ''}`.trim();
+      case 'SELF_INFO':     return `${o.name || 'node info'}`.trim();
       case 'CURRENT_TIME':  return o.time ? new Date(o.time * 1000).toLocaleString() : 'clock read';
       case 'clock_synced':
         return `node clock corrected (was off by ${dur(Math.abs(o.drift_seconds || 0))})`;
@@ -201,7 +201,7 @@ const F = (() => {
         const keys = Object.keys(o);
         if (!keys.length) return '';
         return keys.slice(0, 4)
-          .map((k) => `${label(k).toLowerCase()} ${value(k, o[k])}`).join(' · ');
+          .map((k) => `${label(k).toLowerCase()} ${value(k, o[k])}`).join('   ');
       }
     }
   }
