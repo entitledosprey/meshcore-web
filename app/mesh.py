@@ -147,6 +147,54 @@ class MessageStore:
         return [m for m in self.items if m["id"] > after]
 
 
+class OwnedStore:
+    """Which repeaters are the operator's own.
+
+    Purely a local label: the mesh has no concept of ownership, so this is
+    the only place that distinction exists. Kept on disk so the My Repeaters
+    tab survives a restart.
+    """
+
+    def __init__(self, path: str):
+        self.path = path
+        self._keys: set[str] = set()
+        self._load()
+
+    def _load(self) -> None:
+        try:
+            with open(self.path) as f:
+                self._keys = set(json.load(f))
+        except FileNotFoundError:
+            self._keys = set()
+        except Exception:
+            log.exception("could not read %s; starting empty", self.path)
+            self._keys = set()
+
+    def _save(self) -> None:
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        tmp = self.path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(sorted(self._keys), f)
+        os.replace(tmp, self.path)
+
+    def all(self) -> list[str]:
+        return sorted(self._keys)
+
+    def has(self, pubkey: str) -> bool:
+        return pubkey in self._keys
+
+    def add(self, pubkey: str) -> None:
+        self._keys.add(pubkey)
+        self._save()
+
+    def remove(self, pubkey: str) -> bool:
+        if pubkey not in self._keys:
+            return False
+        self._keys.discard(pubkey)
+        self._save()
+        return True
+
+
 class MeshManager:
     def __init__(self, port: str, baudrate: int = 115200, log_size: int = 400):
         self.port = port
@@ -171,6 +219,8 @@ class MeshManager:
 
         self.passwords = PasswordStore(
             os.environ.get("MESH_PASSWORD_FILE", "/data/passwords.json"))
+        self.owned = OwnedStore(
+            os.environ.get("MESH_OWNED_FILE", "/data/owned.json"))
         # pubkey -> monotonic time of last successful login
         self._logins: dict[str, float] = {}
         self.login_ttl = float(os.environ.get("MESH_LOGIN_TTL", "900"))
@@ -547,8 +597,10 @@ class MeshManager:
             c["is_infra"] = c.get("type") in INFRA_TYPES
             c["has_password"] = self.has_password(c["public_key"])
             c["logged_in"] = self.is_logged_in(c["public_key"])
+            c["owned"] = self.owned.has(c["public_key"])
             out.append(c)
-        out.sort(key=lambda c: (not c["is_infra"], (c.get("adv_name") or "").lower()))
+        out.sort(key=lambda c: (not c["owned"], not c["is_infra"],
+                                (c.get("adv_name") or "").lower()))
         return out
 
     def state(self) -> dict:

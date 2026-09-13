@@ -443,6 +443,42 @@ async def logout(key: str):
     return await _run(["logout", c["adv_name"]], json_output=False, timeout=30)
 
 
+# Queries meshcli issues itself when scoped to a repeater, as opposed to text
+# forwarded to the repeater's own CLI. Taken from meshcli's
+# repeater_completion_list; anything outside the set is refused rather than
+# dispatched at the local node by mistake.
+REQ_VERBS = {"req_status", "req_neighbours", "req_telemetry", "req_acl",
+             "req_owner", "req_regions", "req_clock"}
+
+
+@app.post("/api/contact/{key}/req/{verb}")
+async def repeater_req(key: str, verb: str):
+    if verb not in REQ_VERBS:
+        raise HTTPException(status_code=400, detail=f"unsupported query: {verb}")
+    c = _contact_or_404(key)
+    return await _run([verb, c["adv_name"]], timeout=120, login_contact=c)
+
+
+@app.get("/api/owned")
+async def list_owned():
+    """Public keys the operator has marked as their own repeaters."""
+    return {"ok": True, "keys": mesh.owned.all()}
+
+
+@app.put("/api/contact/{key}/owned")
+async def mark_owned(key: str):
+    c = _contact_or_404(key)
+    mesh.owned.add(c["public_key"])
+    return {"ok": True, "owned": True, "name": c.get("adv_name")}
+
+
+@app.delete("/api/contact/{key}/owned")
+async def unmark_owned(key: str):
+    c = _contact_or_404(key)
+    mesh.owned.remove(c["public_key"])
+    return {"ok": True, "owned": False, "name": c.get("adv_name")}
+
+
 @app.post("/api/contact/{key}/cmd")
 async def repeater_cmd(key: str, r: CmdReq):
     """Send a CLI command to a repeater and wait for its reply."""

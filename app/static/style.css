@@ -472,3 +472,63 @@ pre.raw{margin:0;font:inherit;white-space:pre-wrap;word-break:break-word}
   body{padding-bottom:env(safe-area-inset-bottom)}
 }
 @media (max-width:400px){.actions .btn{flex:1 1 100%}}
+
+/* ---------------- my repeaters ---------------- */
+
+.mine-list { display: grid; gap: 14px; }
+
+.mine {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 14px 16px;
+}
+
+.mine-head-right { display: flex; align-items: center; gap: 10px; }
+
+.btn.btn-small { padding: 3px 9px; font-size: 11px; }
+
+/* Selected state for the Mine toggle on the Repeaters tab. */
+.btn.on {
+  border-color: var(--active);
+  color: var(--active);
+}
+
+.grp { border-top: 1px solid var(--rule-soft); margin-top: 12px; padding-top: 4px; }
+
+.grp > summary {
+  cursor: pointer;
+  font-family: var(--legend);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  padding: 7px 0;
+  user-select: none;
+}
+.grp > summary:hover { color: var(--ink); }
+.grp[open] > summary { color: var(--ink); }
+
+.cfg-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0;
+}
+.cfg-row select,
+.cfg-row input[type="text"],
+.cfg-row input[type="password"] { flex: 1 1 150px; min-width: 0; }
+.cfg-row button { flex: 0 0 auto; }
+
+.grp .hint { margin: 4px 0 8px; min-height: 1em; }
+
+/* Desktop keeps the command groups roomy; narrow screens stack them. */
+@media (max-width: 640px) {
+  .mine { padding: 12px; }
+  .cfg-row { gap: 6px; }
+  .cfg-row select,
+  .cfg-row input[type="text"],
+  .cfg-row input[type="password"] { flex: 1 1 100%; }
+  .cfg-row button { width: 100%; }
+}

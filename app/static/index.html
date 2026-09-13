@@ -28,6 +28,7 @@
   <button class="tab active" data-tab="dash" role="tab">Dashboard</button>
   <button class="tab" data-tab="chat" role="tab">Chat <span class="badge" id="chatBadge" hidden>0</span></button>
   <button class="tab" data-tab="contacts" role="tab">Contacts <span class="badge" id="ctcCount">0</span></button>
+  <button class="tab" data-tab="mine" role="tab">My Repeaters <span class="badge" id="mineCount">0</span></button>
   <button class="tab" data-tab="repeaters" role="tab">Repeaters <span class="badge" id="repCount">0</span></button>
   <button class="tab" data-tab="console" role="tab">Console</button>
   <button class="tab" data-tab="node" role="tab">Node</button>
@@ -100,6 +101,17 @@
   </section>
 
   <!-- ---------------- Repeaters ---------------- -->
+  <section class="panel" id="tab-mine">
+    <div class="card">
+      <h2>My repeaters</h2>
+      <p class="hint">Repeaters you have marked as your own, with the full
+        management surface. Mark one with <b>Mine</b> on the Repeaters tab.
+        Most commands need the repeater password &mdash; save it once under
+        <b>Session</b> and it is reapplied automatically.</p>
+    </div>
+    <div id="mineList" class="mine-list"></div>
+  </section>
+
   <section class="panel" id="tab-repeaters">
     <div class="card">
       <h2>Add by contact URI</h2>
