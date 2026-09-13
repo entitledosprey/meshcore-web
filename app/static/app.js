@@ -175,6 +175,7 @@ function renderAll() {
 
   $('#repCount').textContent = STATE.counts?.infra ?? 0;
   renderRepeaters();
+  renderMine();
   renderContacts();
   renderChatSide();
 }
@@ -233,6 +234,7 @@ function repCard(c) {
       <button class="btn" data-rep="telemetry">Telemetry</button>
       <button class="btn" data-rep="path/discover">Find path</button>
       <button class="btn" data-rep="console">Manage…</button>
+      <button class="btn${c.owned ? ' on' : ''}" data-mine="1">${c.owned ? 'Mine ✓' : 'Mine'}</button>
       <button class="btn btn-danger" data-rep="reboot">Reboot</button>
     </div>
     <div class="out rep-out"${RESULTS[c.public_key] ? '' : ' hidden'}>${
@@ -281,6 +283,15 @@ $$('[data-act]').forEach((btn) => btn.addEventListener('click', () => {
 /* ---------------- repeater actions ---------------- */
 
 $('#repeaterList').addEventListener('click', async (ev) => {
+  const mineBtn = ev.target.closest('[data-mine]');
+  if (mineBtn) {
+    const k = mineBtn.closest('.rep').dataset.key;
+    const on = mineBtn.classList.contains('on');
+    return withBusy(mineBtn, async () => {
+      await api(`/api/contact/${k}/owned`, { method: on ? 'DELETE' : 'PUT' });
+      await refreshState();
+    });
+  }
   const btn = ev.target.closest('[data-rep]');
   if (!btn) return;
   const card = btn.closest('.rep');
@@ -308,6 +319,294 @@ $('#repeaterList').addEventListener('click', async (ev) => {
     RESULTS[key] = html;
     out.innerHTML = html;
     await refreshState();   // safe now: repCard() re-renders RESULTS[key]
+  });
+});
+
+/* ---------------- my repeaters ---------------- */
+
+/* The command surface below is meshcli's own repeater_completion_list, split
+   by how each command actually reaches the repeater:
+
+     query  - meshcli issues it and correlates the reply  (/req/<verb>)
+     cli    - literal text forwarded to the repeater's CLI (/cmd)
+
+   Getting that split wrong is silent: a remote verb sent locally configures
+   this node instead of the repeater. */
+
+const MINE_QUERIES = [
+  ['req_status',     'Status'],
+  ['req_neighbours', 'Neighbours'],
+  ['req_telemetry',  'Telemetry'],
+  ['req_acl',        'Access list'],
+  ['req_owner',      'Owner'],
+  ['req_regions',    'Regions'],
+  ['req_clock',      'Clock'],
+];
+
+const MINE_ACTIONS = [
+  ['ver',                 'Version',            false],
+  ['advert',              'Send advert',        false],
+  ['neighbors',           'Neighbour table',    false],
+  ['discover.neighbors',  'Discover neighbours', false],
+  ['clock sync',          'Sync clock',         false],
+  ['powersaving on',      'Power saving on',    false],
+  ['powersaving off',     'Power saving off',   false],
+  ['log start',           'Log start',          false],
+  ['log stop',            'Log stop',           false],
+  ['log erase',           'Log erase',          true],
+  ['start ota',           'Start OTA',          true],
+  ['reboot',              'Reboot',             true],
+  ['clkreboot',           'Clock reboot',       true],
+  ['erase',               'Erase contacts',     true],
+];
+
+const MINE_GET_VARS = ['name', 'role', 'radio', 'freq', 'tx', 'af', 'repeat',
+  'allow.read.only', 'flood.advert.interval', 'flood.max', 'advert.interval',
+  'guest.password', 'owner.info', 'rxdelay', 'txdelay', 'direct.tx_delay',
+  'public.key', 'lat', 'lon', 'telemetry', 'status', 'timeout', 'acl',
+  'bridge.enabled', 'bridge.delay', 'bridge.source', 'bridge.baud',
+  'bridge.secret', 'bridge.type', 'path.hash.mode'];
+
+const MINE_SET_VARS = [
+  { v: 'name',                  hint: 'text' },
+  { v: 'radio',                 hint: 'freq,bw,sf,cr' },
+  { v: 'freq',                  hint: 'MHz' },
+  { v: 'tx',                    hint: 'dBm' },
+  { v: 'af',                    hint: 'number' },
+  { v: 'repeat',                opts: ['on', 'off'] },
+  { v: 'allow.read.only',       opts: ['on', 'off'] },
+  { v: 'flood.advert.interval', hint: 'minutes' },
+  { v: 'flood.max',             hint: 'hops' },
+  { v: 'advert.interval',       hint: 'minutes' },
+  { v: 'guest.password',        hint: 'text' },
+  { v: 'owner.info',            hint: 'text' },
+  { v: 'rxdelay',               hint: 'ms' },
+  { v: 'txdelay',               hint: 'ms' },
+  { v: 'direct.txdelay',        hint: 'ms' },
+  { v: 'lat',                   hint: 'degrees' },
+  { v: 'lon',                   hint: 'degrees' },
+  { v: 'timeout',               hint: 'seconds' },
+  { v: 'path.hash.mode',        opts: ['0', '1', '2'] },
+  { v: 'bridge.enabled',        opts: ['on', 'off'] },
+  { v: 'bridge.delay',          hint: 'ms' },
+  { v: 'bridge.source',         hint: 'id' },
+  { v: 'bridge.baud',           hint: 'baud' },
+  { v: 'bridge.secret',         hint: 'text' },
+];
+
+const MINE_REGION_OPS = ['get', 'allowf', 'denyf', 'put', 'remove', 'save', 'home'];
+const MINE_GPS_OPS = ['on', 'off', 'sync'];
+
+function renderMine() {
+  const list = $('#mineList');
+  const cs = (STATE.contacts || []).filter((c) => c.owned);
+  const badge = $('#mineCount');
+  if (badge) badge.textContent = cs.length;
+  if (!cs.length) {
+    list.innerHTML = `<div class="card"><div class="empty">
+      No repeaters marked yet. Open the <b>Repeaters</b> tab and press
+      <b>Mine</b> on the ones you run.</div></div>`;
+    return;
+  }
+  list.innerHTML = cs.map(mineCard).join('');
+}
+
+function mineCard(c) {
+  const id = esc(c.public_key);
+  const auth = c.logged_in ? '<span class="auth auth-in">unlocked</span>'
+             : c.has_password ? '<span class="auth auth-saved">key saved</span>'
+             : '<span class="auth auth-none">no password</span>';
+  const path = (c.out_path_len === -1 || c.out_path_len == null)
+    ? 'flood' : `${c.out_path_len} hop${c.out_path_len === 1 ? '' : 's'}`;
+
+  const btns = (arr) => arr.map(([cmd, label, danger]) =>
+    `<button class="btn${danger ? ' btn-danger' : ''}" data-cli="${esc(cmd)}"
+      ${danger ? 'data-confirm="1"' : ''}>${esc(label)}</button>`).join('');
+
+  const queries = MINE_QUERIES.map(([v, label]) =>
+    `<button class="btn" data-query="${esc(v)}">${esc(label)}</button>`).join('');
+
+  const getOpts = MINE_GET_VARS.map((v) =>
+    `<option value="${esc(v)}">${esc(v)}</option>`).join('');
+  const setOpts = MINE_SET_VARS.map((s) =>
+    `<option value="${esc(s.v)}" data-hint="${esc(s.hint || (s.opts || []).join('|'))}">${esc(s.v)}</option>`).join('');
+
+  return `<div class="mine" data-key="${id}">
+    <div class="rep-head">
+      <div>
+        <div class="rep-name">${esc(c.adv_name || '(unnamed)')}</div>
+        <div class="rep-key">${esc(c.key_prefix)}</div>
+      </div>
+      <div class="mine-head-right">
+        ${auth}
+        <button class="btn btn-small" data-unmine="1" title="Remove from My Repeaters">Unmark</button>
+      </div>
+    </div>
+    <div class="rep-meta">
+      <span>${esc(path)}</span>
+      <span>heard ${esc(ago(c.last_advert))}</span>
+      ${c.adv_lat ? `<span>${c.adv_lat.toFixed(4)}, ${c.adv_lon.toFixed(4)}</span>` : ''}
+    </div>
+
+    <details class="grp" open><summary>Queries</summary>
+      <div class="actions">${queries}</div></details>
+
+    <details class="grp"><summary>Actions</summary>
+      <div class="actions">${btns(MINE_ACTIONS)}</div></details>
+
+    <details class="grp"><summary>Configuration</summary>
+      <div class="cfg-row">
+        <select data-role="getvar">${getOpts}</select>
+        <button class="btn" data-getvar="1">Get</button>
+      </div>
+      <div class="cfg-row">
+        <select data-role="setvar">${setOpts}</select>
+        <input type="text" data-role="setval" placeholder="value" autocapitalize="off" spellcheck="false">
+        <button class="btn btn-primary" data-setvar="1">Set</button>
+      </div>
+      <p class="hint" data-role="sethint"></p>
+    </details>
+
+    <details class="grp"><summary>Location &amp; GPS</summary>
+      <div class="actions">
+        ${MINE_GPS_OPS.map((o) => `<button class="btn" data-cli="gps ${o}">gps ${o}</button>`).join('')}
+      </div>
+      <div class="cfg-row">
+        <input type="text" data-role="gpsadv" placeholder="none | share | prefs" autocapitalize="off">
+        <button class="btn" data-gpsadv="1">Set advert policy</button>
+      </div>
+    </details>
+
+    <details class="grp"><summary>Region</summary>
+      <div class="cfg-row">
+        <select data-role="regionop">${MINE_REGION_OPS.map((o) =>
+          `<option value="${esc(o)}">${esc(o)}</option>`).join('')}</select>
+        <input type="text" data-role="regionarg" placeholder="argument (optional)" autocapitalize="off">
+        <button class="btn" data-region="1">Run</button>
+      </div>
+    </details>
+
+    <details class="grp"><summary>Session &amp; permissions</summary>
+      <div class="cfg-row">
+        <input type="password" data-role="pwd" placeholder="repeater password" autocomplete="off">
+        <button class="btn btn-primary" data-savepwd="1">Save &amp; log in</button>
+        <button class="btn" data-logout="1">Log out</button>
+      </div>
+      <div class="cfg-row">
+        <input type="text" data-role="newpwd" placeholder="new admin password" autocomplete="off">
+        <button class="btn btn-danger" data-newpwd="1" data-confirm="1">Change password</button>
+      </div>
+      <div class="cfg-row">
+        <input type="text" data-role="permwho" placeholder="contact name" autocapitalize="off">
+        <input type="text" data-role="permval" placeholder="permission">
+        <button class="btn" data-setperm="1">Set permission</button>
+      </div>
+    </details>
+
+    <details class="grp"><summary>Raw command</summary>
+      <div class="cfg-row">
+        <input type="text" data-role="raw" placeholder="sent verbatim to the repeater CLI"
+               autocapitalize="off" spellcheck="false">
+        <button class="btn" data-raw="1">Send</button>
+      </div>
+    </details>
+
+    <div class="out rep-out"${RESULTS[c.public_key] ? '' : ' hidden'}>${
+      RESULTS[c.public_key] || ''}</div>
+  </div>`;
+}
+
+// Show the expected value format as the selected variable changes.
+$('#mineList').addEventListener('change', (ev) => {
+  const sel = ev.target.closest('[data-role="setvar"]');
+  if (!sel) return;
+  const hint = sel.selectedOptions[0]?.dataset.hint || '';
+  const card = sel.closest('.mine');
+  $('[data-role="sethint"]', card).textContent = hint ? `expects: ${hint}` : '';
+});
+
+async function mineRun(card, fn, label) {
+  const key = card.dataset.key;
+  const out = $('.rep-out', card);
+  out.hidden = false;
+  out.innerHTML = '<span class="muted">working…</span>';
+  let html;
+  try {
+    const r = await fn();
+    html = present(r);
+    if (r.auth && !r.auth.has_password) {
+      html += '<div class="fmt-note">This repeater has no saved password. ' +
+              'Save one under Session &amp; permissions.</div>';
+    }
+  } catch (e) {
+    html = `<div class="fmt-err">${esc(e.message)}</div>`;
+  }
+  RESULTS[key] = html;
+  out.innerHTML = html;
+  await refreshState();
+}
+
+$('#mineList').addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('button');
+  if (!btn) return;
+  const card = btn.closest('.mine');
+  if (!card) return;
+  const key = card.dataset.key;
+  const d = btn.dataset;
+  const val = (role) => ($(`[data-role="${role}"]`, card)?.value || '').trim();
+
+  if (d.confirm && !confirm(`${btn.textContent.trim()} — send to this repeater?`)) return;
+
+  const send = (cmd) => api(`/api/contact/${key}/cmd`,
+    { method: 'POST', body: JSON.stringify({ cmd }) });
+
+  await withBusy(btn, async () => {
+    if (d.unmine) {
+      await api(`/api/contact/${key}/owned`, { method: 'DELETE' });
+      await refreshState();
+      return;
+    }
+    if (d.query)  return mineRun(card, () => api(`/api/contact/${key}/req/${d.query}`, { method: 'POST' }));
+    if (d.cli)    return mineRun(card, () => send(d.cli));
+    if (d.getvar) return mineRun(card, () => send(`get ${$('[data-role="getvar"]', card).value}`));
+    if (d.setvar) {
+      const v = $('[data-role="setvar"]', card).value;
+      const x = val('setval');
+      if (!x) return alert('Enter a value to set.');
+      return mineRun(card, () => send(`set ${v} ${x}`));
+    }
+    if (d.gpsadv) {
+      const x = val('gpsadv');
+      if (!x) return alert('Enter none, share or prefs.');
+      return mineRun(card, () => send(`gps advert ${x}`));
+    }
+    if (d.region) {
+      const op = $('[data-role="regionop"]', card).value;
+      const arg = val('regionarg');
+      return mineRun(card, () => send(`region ${op}${arg ? ' ' + arg : ''}`));
+    }
+    if (d.savepwd) {
+      const pwd = val('pwd');
+      if (!pwd) return alert('Enter the repeater password.');
+      return mineRun(card, () => api(`/api/contact/${key}/password`,
+        { method: 'PUT', body: JSON.stringify({ password: pwd, remember: true }) }));
+    }
+    if (d.logout)  return mineRun(card, () => api(`/api/contact/${key}/logout`, { method: 'POST' }));
+    if (d.newpwd) {
+      const x = val('newpwd');
+      if (!x) return alert('Enter the new password.');
+      return mineRun(card, () => send(`password ${x}`));
+    }
+    if (d.setperm) {
+      const who = val('permwho'), p = val('permval');
+      if (!who || !p) return alert('Enter a contact and a permission.');
+      return mineRun(card, () => send(`setperm ${who} ${p}`));
+    }
+    if (d.raw) {
+      const x = val('raw');
+      if (!x) return;
+      return mineRun(card, () => send(x));
+    }
   });
 });
 
@@ -583,9 +882,32 @@ async function loadChat() {
   } catch (e) { /* offline; the websocket will catch us up */ }
 }
 
+// Newest traffic first. Message ids are monotonic, so the highest id in a
+// thread is its most recent activity; threads that have never carried a
+// message keep their natural order underneath.
+function lastActivity() {
+  const seen = Object.create(null);
+  for (const m of MESSAGES) {
+    const k = threadKey(m);
+    const id = m.id || 0;
+    if (!(k in seen) || id > seen[k]) seen[k] = id;
+  }
+  return seen;
+}
+
+function byRecency(items, keyOf) {
+  const act = lastActivity();
+  return items
+    .map((x, i) => ({ x, i, at: act[keyOf(x)] || 0 }))
+    .sort((a, b) => (b.at - a.at) || (a.i - b.i))
+    .map((e) => e.x);
+}
+
 function renderChatSide() {
-  $('#chanList').innerHTML = CHANNELS.length
-    ? CHANNELS.map((c) => {
+  const chans = byRecency(CHANNELS, (c) => 'c:' + c.channel_idx);
+  const $chanList = $('#chanList');
+  $chanList.innerHTML = chans.length
+    ? chans.map((c) => {
         const on = ACTIVE.kind === 'channel' && ACTIVE.id === c.channel_idx;
         const n = UNREAD['c:' + c.channel_idx] || 0;
         const nm = c.channel_name.replace(/^#/, '').toLowerCase();
@@ -596,7 +918,7 @@ function renderChatSide() {
       }).join('')
     : '<div class="empty" style="padding:10px">no channels</div>';
 
-  const dms = (STATE.contacts || []);
+  const dms = byRecency(STATE.contacts || [], (c) => 'd:' + c.public_key);
   $('#dmList').innerHTML = dms.length
     ? dms.map((c) => {
         const on = ACTIVE.kind === 'dm' && ACTIVE.id === c.public_key;
