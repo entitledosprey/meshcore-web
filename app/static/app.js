@@ -397,8 +397,50 @@ const MINE_SET_VARS = [
 const MINE_REGION_OPS = ['get', 'allowf', 'denyf', 'put', 'remove', 'save', 'home'];
 const MINE_GPS_OPS = ['on', 'off', 'sync'];
 
+/* A card's open groups and half-typed values live only in the DOM, but every
+   action ends in refreshState() -> renderMine(), which rebuilds these cards.
+   Capture that state first so the card comes back the way it was left. */
+const MINE_OPEN = Object.create(null);    // card key -> Set of group names
+const MINE_FIELDS = Object.create(null);  // card key -> {role: value}
+
+const openAttr = (c, grp, dflt = false) => {
+  const s = MINE_OPEN[c.public_key];
+  return (s ? s.has(grp) : dflt) ? ' open' : '';
+};
+
+function captureMine() {
+  for (const card of $$('#mineList .mine')) {
+    const key = card.dataset.key;
+    const open = new Set();
+    for (const d of $$('details.grp', card)) if (d.open) open.add(d.dataset.grp);
+    MINE_OPEN[key] = open;
+    const f = Object.create(null);
+    for (const el of $$('[data-role]', card)) {
+      // Passwords are deliberately not carried across a re-render.
+      if (el.type !== 'password' && el.value) f[el.dataset.role] = el.value;
+    }
+    MINE_FIELDS[key] = f;
+  }
+}
+
+function restoreMine() {
+  for (const card of $$('#mineList .mine')) {
+    const f = MINE_FIELDS[card.dataset.key];
+    if (!f) continue;
+    for (const el of $$('[data-role]', card)) {
+      const v = f[el.dataset.role];
+      if (v != null) el.value = v;
+    }
+    const sel = $('[data-role="setvar"]', card);
+    const hint = sel?.selectedOptions[0]?.dataset.hint || '';
+    const box = $('[data-role="sethint"]', card);
+    if (box) box.textContent = hint ? `expects: ${hint}` : '';
+  }
+}
+
 function renderMine() {
   const list = $('#mineList');
+  captureMine();
   const cs = (STATE.contacts || []).filter((c) => c.owned);
   const badge = $('#mineCount');
   if (badge) badge.textContent = cs.length;
@@ -409,6 +451,7 @@ function renderMine() {
     return;
   }
   list.innerHTML = cs.map(mineCard).join('');
+  restoreMine();
 }
 
 function mineCard(c) {
@@ -448,13 +491,13 @@ function mineCard(c) {
       ${c.adv_lat ? `<span>${c.adv_lat.toFixed(4)}, ${c.adv_lon.toFixed(4)}</span>` : ''}
     </div>
 
-    <details class="grp" open><summary>Queries</summary>
+    <details class="grp" data-grp="queries"${openAttr(c, 'queries', true)}><summary>Queries</summary>
       <div class="actions">${queries}</div></details>
 
-    <details class="grp"><summary>Actions</summary>
+    <details class="grp" data-grp="actions"${openAttr(c, 'actions')}><summary>Actions</summary>
       <div class="actions">${btns(MINE_ACTIONS)}</div></details>
 
-    <details class="grp"><summary>Configuration</summary>
+    <details class="grp" data-grp="config"${openAttr(c, 'config')}><summary>Configuration</summary>
       <div class="cfg-row">
         <select data-role="getvar">${getOpts}</select>
         <button class="btn" data-getvar="1">Get</button>
@@ -467,7 +510,7 @@ function mineCard(c) {
       <p class="hint" data-role="sethint"></p>
     </details>
 
-    <details class="grp"><summary>Location &amp; GPS</summary>
+    <details class="grp" data-grp="gps"${openAttr(c, 'gps')}><summary>Location &amp; GPS</summary>
       <div class="actions">
         ${MINE_GPS_OPS.map((o) => `<button class="btn" data-cli="gps ${o}">gps ${o}</button>`).join('')}
       </div>
@@ -477,7 +520,7 @@ function mineCard(c) {
       </div>
     </details>
 
-    <details class="grp"><summary>Region</summary>
+    <details class="grp" data-grp="region"${openAttr(c, 'region')}><summary>Region</summary>
       <div class="cfg-row">
         <select data-role="regionop">${MINE_REGION_OPS.map((o) =>
           `<option value="${esc(o)}">${esc(o)}</option>`).join('')}</select>
@@ -486,7 +529,7 @@ function mineCard(c) {
       </div>
     </details>
 
-    <details class="grp"><summary>Session &amp; permissions</summary>
+    <details class="grp" data-grp="session"${openAttr(c, 'session')}><summary>Session &amp; permissions</summary>
       <div class="cfg-row">
         <input type="password" data-role="pwd" placeholder="repeater password" autocomplete="off">
         <button class="btn btn-primary" data-savepwd="1">Save &amp; log in</button>
@@ -503,7 +546,7 @@ function mineCard(c) {
       </div>
     </details>
 
-    <details class="grp"><summary>Raw command</summary>
+    <details class="grp" data-grp="raw"${openAttr(c, 'raw')}><summary>Raw command</summary>
       <div class="cfg-row">
         <input type="text" data-role="raw" placeholder="sent verbatim to the repeater CLI"
                autocapitalize="off" spellcheck="false">

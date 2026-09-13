@@ -1,5 +1,6 @@
 """MeshCore web console -- REST + WebSocket over a single companion radio."""
 import asyncio
+import hashlib
 import contextlib
 import json
 import logging
@@ -8,7 +9,7 @@ import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -609,6 +610,27 @@ async def healthz():
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
+def _asset_tag() -> str:
+    """Fingerprint of the front-end assets, recomputed per request.
+
+    Browsers cache /static/app.js aggressively, so shipping a new build is
+    invisible until a hard refresh -- new markup arrives while the old script
+    keeps running, and the mismatch looks like a missing feature. Stamping the
+    URLs makes a changed file a changed URL.
+    """
+    h = hashlib.md5()
+    for name in ("app.js", "fmt.js", "style.css", "index.html"):
+        try:
+            h.update((STATIC / name).read_bytes())
+        except OSError:
+            continue
+    return h.hexdigest()[:10]
+
+
 @app.get("/")
 async def index():
-    return FileResponse(STATIC / "index.html")
+    html = (STATIC / "index.html").read_text()
+    tag = _asset_tag()
+    for name in ("style.css", "app.js", "fmt.js"):
+        html = html.replace(f"/static/{name}", f"/static/{name}?v={tag}")
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
