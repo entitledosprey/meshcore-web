@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .mesh import MeshManager
+from .telemetry.collector import Collector
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 log = logging.getLogger("meshweb")
@@ -23,6 +24,7 @@ BAUD = int(os.environ.get("MESH_BAUD", "115200"))
 STATIC = Path(__file__).parent / "static"
 
 mesh = MeshManager(PORT_DEV, BAUD)
+collector = Collector(mesh)
 app = FastAPI(title="MeshCore Console")
 
 
@@ -30,10 +32,16 @@ app = FastAPI(title="MeshCore Console")
 async def _startup():
     Path(os.path.expanduser("~/.config/meshcore")).mkdir(parents=True, exist_ok=True)
     await mesh.start()
+    # After mesh.start() so the event hook is registered against a manager that
+    # is already supervising; the hook survives reconnects either way.
+    await collector.start()
 
 
 @app.on_event("shutdown")
 async def _shutdown():
+    # Collector first: it flushes what it has rather than losing the last batch
+    # when the radio link goes away underneath it.
+    await collector.stop()
     await mesh.stop()
 
 
@@ -141,6 +149,18 @@ def _contact_or_404(key: str) -> dict:
 @app.get("/api/state")
 async def get_state():
     return mesh.state()
+
+
+@app.get("/api/telemetry/status")
+async def get_telemetry_status():
+    """What the collector has done since it started.
+
+    The counters are the quickest way to tell the three failure modes apart:
+    frames_seen flat means the radio is not reporting, points_dropped climbing
+    means InfluxDB is rejecting writes, and spool_bytes growing means it is
+    unreachable but the data is being kept.
+    """
+    return collector.stats()
 
 
 @app.get("/api/events")

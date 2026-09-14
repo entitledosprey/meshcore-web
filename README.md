@@ -17,6 +17,8 @@ attached over USB.
 - **Repeaters** — status, neighbours, telemetry and remote commands against
   repeaters, with saved passwords and automatic login.
 - **Console** — the full `meshcore-cli` command set in the browser.
+- **Telemetry** — optional: records every frame the radio hears, plus repeater
+  and local-radio stats, into InfluxDB for Grafana. See [Telemetry](#telemetry).
 
 Everything is served from one process that owns the serial port, so the radio
 never sees two clients competing for it.
@@ -69,6 +71,74 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 | `LOG_LEVEL` | `INFO` | Python log level |
 
 State lives in the `meshcore-data` volume.
+
+## Telemetry
+
+Companion firmware reports **every frame the radio demodulates** to its serial
+client — before parsing, before the addressing check — so the console's radio is
+already a full-channel receiver. With InfluxDB configured, the collector records
+that stream, polls the local radio's counters, and polls repeaters you own.
+
+Adverts are decoded, so the data carries node identity: public key, name, type
+and coordinates. That is the part a listen-only observer cannot provide.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `INFLUX_URL` | *(unset)* | InfluxDB v2 base URL. **Unset disables telemetry.** |
+| `INFLUX_TOKEN` | *(unset)* | Token with write access to the bucket |
+| `INFLUX_ORG` | `home` | InfluxDB organisation |
+| `INFLUX_BUCKET` | `meshcore` | Target bucket |
+| `TELEMETRY_NODE` | *(radio name)* | Value of the `node` tag |
+| `TELEMETRY_SPOOL_DIR` | `/data/spool` | Where points wait out an outage |
+| `TELEMETRY_SPOOL_MAX_MB` | `32` | Spool cap; oldest is dropped first |
+| `TELEMETRY_LOCAL_INTERVAL` | `60` | Seconds between local radio stat reads |
+| `TELEMETRY_REPEATER_INTERVAL` | `300` | Seconds between repeater polls (floor 300) |
+| `TELEMETRY_NEIGHBOUR_INTERVAL` | `1800` | Seconds between neighbour fetches (floor 900) |
+| `TELEMETRY_DEDUPE_TTL` | `90` | Window for marking a re-heard packet as a repeat |
+
+Repeater polling **transmits**, so the intervals have floors and repeaters are
+staggered rather than polled in a burst. Targets are the contacts marked owned
+that also have a saved password — the same two lists the Repeaters tab edits.
+
+`GET /api/telemetry/status` reports what the collector has done. The counters
+separate the failure modes: `frames_seen` flat means the radio is not reporting,
+`points_dropped` climbing means InfluxDB is rejecting writes, and `spool_bytes`
+growing means it is unreachable but nothing is being lost.
+
+### Measurements
+
+| Measurement | What it holds |
+| --- | --- |
+| `mc_rx` | One point per frame heard: SNR, RSSI, length, hop count, route and payload type |
+| `mc_node` | Node registry from adverts: name, type, coordinates, last heard |
+| `mc_chan` | Channel traffic volume (never message text) |
+| `mc_local` | The companion radio's own counters |
+| `mc_repeater` | Repeater status: uptime, battery, queue, airtime, dup counts |
+| `mc_repeater_telem` | Repeater sensor telemetry (Cayenne LPP) |
+| `mc_neighbour` | Zero-hop neighbours reported by each repeater |
+| `mc_collector` | Collector health |
+
+High-cardinality values (packet hash, path, advert key) are fields, not tags.
+
+### Dashboard
+
+`grafana/build_dashboard.py` generates the Grafana dashboard;
+`grafana/check_queries.py` runs every query in it against InfluxDB, because
+Grafana renders a broken query as an empty panel that looks just like one
+waiting for data.
+
+### Replaying stored frames
+
+`app.telemetry.replay` decodes stored frames through the live code path with no
+radio attached. Given an export of on-air hex, it reports how the decoder read
+each frame and can write the resulting points to a bucket:
+
+```sh
+python -m app.telemetry.replay --csv frames.csv --check
+```
+
+With `--check` it compares its own reading against whatever labels the export
+carries, which is how the decoder was validated before the radio was reflashed.
 
 ## HTTPS
 

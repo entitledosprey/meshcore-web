@@ -1,0 +1,541 @@
+#!/usr/bin/env python3
+"""Generate the MeshCore platform Grafana dashboard.
+
+Written as a generator rather than hand-edited JSON so the Flux queries stay
+readable and can be extracted and run against InfluxDB before import -- a
+mistyped query in a 20-panel dashboard is otherwise only found by eye, one
+panel at a time.
+
+    python3 grafana/build_dashboard.py > grafana/meshcore-platform.json
+"""
+import json
+
+DS = {"type": "influxdb", "uid": "cf9lcoakbb9j4a"}
+
+# Categorical slots 1-7 of the validated palette, dark steps. Colours are bound
+# to payload types in ALPHABETICAL order on purpose: Flux emits groups sorted by
+# key, so alphabetical order is the order the stack renders in, and this mapping
+# puts the palette's validated adjacent-pair chain on screen in that same order.
+# Re-ordering these without re-validating puts yellow next to orange, the one
+# pair in this palette that fails on its own.
+SLOT = ["#3987e5", "#d95926", "#199e70", "#c98500",
+        "#d55181", "#008300", "#9085e9"]
+PTYPES = ["ADVERT", "ANON_REQ", "GRP_TXT", "Other", "PATH", "REQ", "RESPONSE"]
+PTYPE_COLOR = dict(zip(PTYPES, SLOT))
+
+# Sequential blue, ordinal range (no lighter than step 250 so every bar clears
+# 2:1 against the panel surface).
+BLUE_ORDINAL = ["#86b6ef", "#6da7ec", "#5598e7", "#3987e5",
+                "#2a78d6", "#256abf", "#1c5cab", "#184f95"]
+
+GOOD, CRITICAL, WARNING = "#0ca30c", "#d03b3b", "#fab219"
+
+# Payload types charted individually. Fixed, not top-N: a top-N list repaints
+# every series whenever the ranking shifts, so a colour would stop meaning a
+# particular kind of traffic.
+NAMED_PTYPES = '["REQ", "PATH", "ANON_REQ", "GRP_TXT", "ADVERT", "RESPONSE"]'
+
+RX = '''  |> filter(fn: (r) => r._measurement == "mc_rx")
+  |> filter(fn: (r) => r.node =~ /^${node:regex}$/)'''
+
+HEAD = 'from(bucket: "${bucket}")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n'
+
+
+def q_frames_total():
+    return HEAD + RX + '''
+  |> filter(fn: (r) => r._field == "len")
+  |> group()
+  |> count()'''
+
+
+def q_unique_packets():
+    return HEAD + RX + '''
+  |> filter(fn: (r) => r._field == "len" and r.dup == "0")
+  |> group()
+  |> count()'''
+
+
+def q_repeat_rate():
+    # One pass rather than a join: reduce carries both counters, so the ratio
+    # cannot disagree with itself across two separately-evaluated queries.
+    return HEAD + RX + '''
+  |> filter(fn: (r) => r._field == "len")
+  |> group()
+  |> reduce(
+      identity: {total: 0.0, dups: 0.0},
+      fn: (r, accumulator) => ({
+        total: accumulator.total + 1.0,
+        dups: accumulator.dups + (if r.dup == "1" then 1.0 else 0.0),
+      }))
+  |> map(fn: (r) => ({_value: if r.total > 0.0 then 100.0 * r.dups / r.total else 0.0}))'''
+
+
+def q_adverts():
+    return HEAD + RX + '''
+  |> filter(fn: (r) => r._field == "len" and r.ptype == "ADVERT")
+  |> group()
+  |> count()'''
+
+
+def q_nodes_heard():
+    return HEAD + '''  |> filter(fn: (r) => r._measurement == "mc_node" and r._field == "heard")
+  |> group(columns: ["pubkey"])
+  |> last()
+  |> group()
+  |> count()'''
+
+
+def q_frames_by_type():
+    return HEAD + RX + f'''
+  |> filter(fn: (r) => r._field == "len")
+  |> map(fn: (r) => ({{r with ptype:
+      if contains(value: r.ptype, set: {NAMED_PTYPES}) then r.ptype else "Other"}}))
+  |> group(columns: ["ptype"])
+  |> aggregateWindow(every: v.windowPeriod, fn: count, createEmpty: true)
+  |> map(fn: (r) => ({{r with _value: if exists r._value then r._value else 0}}))'''
+
+
+def q_frames_by_hops():
+    return HEAD + RX + '''
+  |> filter(fn: (r) => r._field == "len")
+  |> group(columns: ["hops"])
+  |> count()
+  |> group()
+  |> map(fn: (r) => ({r with order: if r.hops =~ /^[0-9]+$/ then int(v: r.hops) else 99}))
+  |> sort(columns: ["order"])
+  |> keep(columns: ["hops", "_value"])
+  |> rename(columns: {_value: "frames"})'''
+
+
+def q_snr_heatmap():
+    return HEAD + RX + '''
+  |> filter(fn: (r) => r._field == "snr")
+  |> group()
+  |> keep(columns: ["_time", "_value"])'''
+
+
+def q_snr_by_hops():
+    return HEAD + RX + '''
+  |> filter(fn: (r) => r._field == "snr")
+  |> group(columns: ["hops"])
+  |> mean()
+  |> group()
+  |> map(fn: (r) => ({r with order: if r.hops =~ /^[0-9]+$/ then int(v: r.hops) else 99}))
+  |> sort(columns: ["order"])
+  |> keep(columns: ["hops", "_value"])
+  |> rename(columns: {_value: "mean SNR"})'''
+
+
+def q_local(field: str):
+    return HEAD + f'''  |> filter(fn: (r) => r._measurement == "mc_local" and r._field == "{field}")
+  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)'''
+
+
+def q_node_table():
+    return HEAD + '''  |> filter(fn: (r) => r._measurement == "mc_node" and r._field == "snr")
+  |> group(columns: ["pubkey", "name", "type"])
+  |> last()
+  |> group()
+  |> sort(columns: ["_time"], desc: true)
+  |> keep(columns: ["_time", "pubkey", "name", "type", "_value"])
+  |> rename(columns: {_time: "last heard", _value: "SNR"})'''
+
+
+def q_node_map():
+    return HEAD + '''  |> filter(fn: (r) => r._measurement == "mc_node")
+  |> filter(fn: (r) => r._field == "lat" or r._field == "lon")
+  |> group(columns: ["pubkey", "name", "type", "_field"])
+  |> last()
+  |> group(columns: ["pubkey", "name", "type"])
+  |> pivot(rowKey: ["pubkey"], columnKey: ["_field"], valueColumn: "_value")
+  |> group()
+  |> keep(columns: ["pubkey", "name", "type", "lat", "lon"])'''
+
+
+def q_repeater(field: str, agg: str = "last"):
+    return HEAD + f'''  |> filter(fn: (r) => r._measurement == "mc_repeater" and r._field == "{field}")
+  |> group(columns: ["repeater"])
+  |> aggregateWindow(every: v.windowPeriod, fn: {agg}, createEmpty: false)'''
+
+
+def q_repeater_table():
+    return HEAD + '''  |> filter(fn: (r) => r._measurement == "mc_repeater")
+  |> filter(fn: (r) => r._field == "uptime" or r._field == "bat"
+                    or r._field == "tx_queue_len" or r._field == "nb_recv"
+                    or r._field == "flood_dups" or r._field == "rtt_ms")
+  |> group(columns: ["repeater", "_field"])
+  |> last()
+  |> pivot(rowKey: ["repeater"], columnKey: ["_field"], valueColumn: "_value")
+  |> group()
+  |> keep(columns: ["repeater", "uptime", "bat", "tx_queue_len", "nb_recv",
+                    "flood_dups", "rtt_ms"])'''
+
+
+def q_neighbours():
+    return HEAD + '''  |> filter(fn: (r) => r._measurement == "mc_neighbour" and r._field == "snr")
+  |> group(columns: ["repeater", "neighbour"])
+  |> last()
+  |> group()
+  |> sort(columns: ["_value"], desc: true)
+  |> keep(columns: ["repeater", "neighbour", "_value", "_time"])
+  |> rename(columns: {_value: "SNR", _time: "seen"})'''
+
+
+def q_collector(field: str, agg: str = "last"):
+    return HEAD + f'''  |> filter(fn: (r) => r._measurement == "mc_collector" and r._field == "{field}")
+  |> group(columns: ["node", "_field"])
+  |> aggregateWindow(every: v.windowPeriod, fn: {agg}, createEmpty: false)'''
+
+
+def q_serial_up():
+    return HEAD + '''  |> filter(fn: (r) => r._measurement == "mc_collector" and r._field == "serial_up")
+  |> last()
+  |> map(fn: (r) => ({r with _value: if r._value then 1 else 0}))
+  |> group()'''
+
+
+# --------------------------------------------------------------------------
+# panel helpers
+# --------------------------------------------------------------------------
+
+_id = [0]
+
+
+def nid() -> int:
+    _id[0] += 1
+    return _id[0]
+
+
+def targets(*queries):
+    return [{"datasource": DS, "query": q, "refId": chr(65 + i)}
+            for i, q in enumerate(queries)]
+
+
+def row(title, y):
+    return {"type": "row", "title": title, "id": nid(), "collapsed": False,
+            "gridPos": {"h": 1, "w": 24, "x": 0, "y": y}, "panels": []}
+
+
+def stat(title, query, x, y, w=4, h=4, unit="short", decimals=None,
+         desc="", thresholds=None, mappings=None):
+    steps = thresholds or [{"color": "text", "value": None}]
+    return {
+        "type": "stat", "title": title, "id": nid(), "datasource": DS,
+        "description": desc,
+        "gridPos": {"h": h, "w": w, "x": x, "y": y},
+        "targets": targets(query),
+        "fieldConfig": {"defaults": {
+            "unit": unit, "decimals": decimals,
+            "mappings": mappings or [],
+            "color": {"mode": "thresholds"},
+            "thresholds": {"mode": "absolute", "steps": steps},
+        }, "overrides": []},
+        "options": {
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
+            "textMode": "auto", "colorMode": "value", "graphMode": "none",
+            "justifyMode": "auto", "orientation": "auto",
+        },
+    }
+
+
+def timeseries(title, query, x, y, w, h, *, unit="short", stack=False,
+               fill=0, desc="", overrides=None, legend_table=False,
+               draw="line", width=2, points=False, minval=None):
+    custom = {
+        "drawStyle": draw,
+        "lineWidth": width,
+        "fillOpacity": fill,
+        "showPoints": "auto" if points else "never",
+        "pointSize": 8,
+        "stacking": {"mode": "normal" if stack else "none", "group": "A"},
+        "axisBorderShow": False,
+        "gradientMode": "none",
+        "barAlignment": 0,
+        "lineInterpolation": "linear",
+        "spanNulls": False,
+        # A 2px gap between stacked fills keeps adjacent segments from reading
+        # as one shape.
+        "barWidthFactor": 0.9,
+    }
+    defaults = {"unit": unit, "custom": custom,
+                "color": {"mode": "palette-classic"},
+                "thresholds": {"mode": "absolute",
+                               "steps": [{"color": "text", "value": None}]}}
+    if minval is not None:
+        defaults["min"] = minval
+    return {
+        "type": "timeseries", "title": title, "id": nid(), "datasource": DS,
+        "description": desc,
+        "gridPos": {"h": h, "w": w, "x": x, "y": y},
+        "targets": targets(query),
+        "fieldConfig": {"defaults": defaults, "overrides": overrides or []},
+        "options": {
+            "legend": {"displayMode": "table" if legend_table else "list",
+                       "placement": "bottom", "showLegend": True,
+                       "calcs": ["mean", "max"] if legend_table else []},
+            "tooltip": {"mode": "multi", "sort": "desc"},
+        },
+    }
+
+
+def color_override(name, color):
+    return {"matcher": {"id": "byName", "options": name},
+            "properties": [{"id": "color",
+                            "value": {"mode": "fixed", "fixedColor": color}}]}
+
+
+def barchart(title, query, x, y, w, h, *, xfield, unit="short", desc="",
+             overrides=None, color=None):
+    return {
+        "type": "barchart", "title": title, "id": nid(), "datasource": DS,
+        "description": desc,
+        "gridPos": {"h": h, "w": w, "x": x, "y": y},
+        "targets": targets(query),
+        "fieldConfig": {"defaults": {
+            "unit": unit,
+            "color": {"mode": "fixed", "fixedColor": color or SLOT[0]},
+            "custom": {"lineWidth": 0, "fillOpacity": 90, "radius": 0,
+                       "barRadius": 0.15, "axisBorderShow": False,
+                       "gradientMode": "none"},
+            "thresholds": {"mode": "absolute",
+                           "steps": [{"color": "text", "value": None}]},
+        }, "overrides": overrides or []},
+        "options": {
+            "xField": xfield,
+            "orientation": "auto",
+            "showValue": "never",
+            "stacking": "none",
+            "legend": {"showLegend": False, "displayMode": "list",
+                       "placement": "bottom"},
+            "tooltip": {"mode": "single", "sort": "none"},
+        },
+    }
+
+
+def table(title, query, x, y, w, h, *, desc="", overrides=None):
+    return {
+        "type": "table", "title": title, "id": nid(), "datasource": DS,
+        "description": desc,
+        "gridPos": {"h": h, "w": w, "x": x, "y": y},
+        "targets": targets(query),
+        "transformations": [{"id": "merge", "options": {}}],
+        "fieldConfig": {"defaults": {
+            "custom": {"align": "auto", "filterable": True},
+            "thresholds": {"mode": "absolute",
+                           "steps": [{"color": "text", "value": None}]},
+        }, "overrides": overrides or []},
+        "options": {"showHeader": True, "footer": {"show": False}},
+    }
+
+
+def heatmap(title, query, x, y, w, h, *, desc=""):
+    return {
+        "type": "heatmap", "title": title, "id": nid(), "datasource": DS,
+        "description": desc,
+        "gridPos": {"h": h, "w": w, "x": x, "y": y},
+        "targets": targets(query),
+        "options": {
+            "calculate": True,
+            "calculation": {"yBuckets": {"mode": "size", "value": "2"}},
+            # One hue, light to dark. A rainbow scheme here would imply
+            # categories where there is only magnitude.
+            "color": {"mode": "scheme", "scheme": "Blues", "steps": ytosteps(),
+                      "reverse": False, "exponent": 0.5, "fill": SLOT[0]},
+            "cellGap": 2,
+            "yAxis": {"unit": "dB", "axisPlacement": "left"},
+            "legend": {"show": True},
+            "tooltip": {"mode": "single", "yHistogram": True, "showColorScale": True},
+            "exemplars": {"color": "rgba(255,0,255,0.7)"},
+            "filterValues": {"le": 1e-9},
+            "rowsFrame": {"layout": "auto"},
+            "showValue": "never",
+        },
+        "fieldConfig": {"defaults": {"custom": {"hideFrom":
+                        {"legend": False, "tooltip": False, "viz": False}}},
+                        "overrides": []},
+    }
+
+
+def ytosteps():
+    return 64
+
+
+def geomap(title, query, x, y, w, h, *, desc=""):
+    return {
+        "type": "geomap", "title": title, "id": nid(), "datasource": DS,
+        "description": desc,
+        "gridPos": {"h": h, "w": w, "x": x, "y": y},
+        "targets": targets(query),
+        "fieldConfig": {"defaults": {
+            "color": {"mode": "fixed", "fixedColor": SLOT[0]},
+            "thresholds": {"mode": "absolute",
+                           "steps": [{"color": "text", "value": None}]},
+        }, "overrides": []},
+        "options": {
+            "view": {"id": "fit", "lat": 0, "lon": 0, "zoom": 8},
+            "basemap": {"type": "default", "name": "Basemap"},
+            "layers": [{
+                "type": "markers", "name": "Nodes",
+                "location": {"mode": "coords", "latitude": "lat",
+                             "longitude": "lon"},
+                "config": {
+                    "style": {
+                        "size": {"fixed": 9, "min": 6, "max": 14},
+                        "color": {"fixed": SLOT[0]},
+                        "opacity": 0.9,
+                        "symbol": {"mode": "fixed",
+                                   "fixed": "img/icons/marker/circle.svg"},
+                        "textConfig": {"fontSize": 12, "offsetX": 0,
+                                       "offsetY": -14, "textAlign": "center",
+                                       "textBaseline": "middle"},
+                    },
+                    "showLegend": False,
+                },
+                "tooltip": True,
+            }],
+            "controls": {"showZoom": True, "showAttribution": True,
+                         "mouseWheelZoom": False},
+            "tooltip": {"mode": "details"},
+        },
+    }
+
+
+# --------------------------------------------------------------------------
+# dashboard
+# --------------------------------------------------------------------------
+
+def build() -> dict:
+    p = []
+    ptype_overrides = [color_override(t, PTYPE_COLOR[t]) for t in PTYPES]
+
+    p.append(row("Air", 0))
+    y = 1
+    p.append(stat("Frames heard", q_frames_total(), 0, y,
+                  desc="Every frame the radio demodulated, repeats included -- "
+                       "this is what the channel actually cost in airtime."))
+    p.append(stat("Unique packets", q_unique_packets(), 4, y,
+                  desc="Frames whose packet hash was not already seen inside "
+                       "the dedupe window: the real traffic behind the airtime."))
+    p.append(stat("Repeated", q_repeat_rate(), 8, y, unit="percent", decimals=1,
+                  desc="Share of frames that were rebroadcasts of a packet "
+                       "already heard. High is normal in a dense flood mesh."))
+    p.append(stat("Adverts", q_adverts(), 12, y,
+                  desc="Advert frames -- the ones carrying node identity."))
+    p.append(stat("Nodes heard", q_nodes_heard(), 16, y,
+                  desc="Distinct public keys seen advertising."))
+    p.append(stat("Radio link", q_serial_up(), 20, y,
+                  desc="Whether the collector currently holds the serial link.",
+                  mappings=[{"type": "value", "options": {
+                      "0": {"text": "DOWN", "color": CRITICAL, "index": 0},
+                      "1": {"text": "UP", "color": GOOD, "index": 1}}}],
+                  thresholds=[{"color": "text", "value": None}]))
+
+    y += 4
+    p.append(timeseries(
+        "Frames by payload type", q_frames_by_type(), 0, y, 16, 9,
+        stack=True, fill=85, draw="bars", width=1, legend_table=True,
+        overrides=ptype_overrides, minval=0,
+        desc="Stacked count per interval. Types beyond the six charted "
+             "individually are folded into Other so a colour always means the "
+             "same kind of traffic."))
+    p.append(barchart(
+        "Frames by hop count", q_frames_by_hops(), 16, y, 8, 9,
+        xfield="hops", color=SLOT[0],
+        desc="How far traffic has travelled before reaching this receiver. "
+             "0 means heard directly from the sender."))
+
+    y += 9
+    p.append(row("RF quality", y))
+    y += 1
+    p.append(heatmap("SNR distribution", q_snr_heatmap(), 0, y, 12, 9,
+                     desc="Every frame's signal-to-noise, bucketed. Bands "
+                          "correspond to distinct sets of neighbours."))
+    p.append(barchart("Mean SNR by hop count", q_snr_by_hops(), 12, y, 6, 9,
+                      xfield="hops", unit="dB", color=SLOT[0],
+                      desc="Signal quality does not decay with hop count -- "
+                           "each hop is its own local link -- so a slope here "
+                           "says something about which repeaters are reaching us."))
+    p.append(timeseries("Local radio noise floor", q_local("noise_floor"),
+                        18, y, 6, 9, unit="dBm",
+                        desc="From the companion radio's own stats. Empty "
+                             "until the collector runs against real hardware."))
+
+    y += 9
+    p.append(row("Nodes", y))
+    y += 1
+    p.append(table("Nodes heard", q_node_table(), 0, y, 12, 10,
+                   desc="Built from overheard adverts. Keyed on public key, so "
+                        "a node that renames itself stays one row."))
+    p.append(geomap("Node locations", q_node_map(), 12, y, 12, 10,
+                    desc="Only nodes that advertise coordinates appear."))
+
+    y += 10
+    p.append(row("Repeaters", y))
+    y += 1
+    p.append(timeseries("Battery", q_repeater("bat"), 0, y, 8, 8, unit="mvolt",
+                        legend_table=True))
+    p.append(timeseries("TX queue depth", q_repeater("tx_queue_len"),
+                        8, y, 8, 8, legend_table=True,
+                        desc="A queue that does not drain means the repeater is "
+                             "transmitting slower than it is being asked to."))
+    p.append(timeseries("Round-trip time", q_repeater("rtt_ms"), 16, y, 8, 8,
+                        unit="ms", legend_table=True,
+                        desc="How long a status request took over the mesh."))
+    y += 8
+    p.append(table("Repeater status", q_repeater_table(), 0, y, 12, 8,
+                   desc="Latest reading per repeater you own and have "
+                        "credentials for."))
+    p.append(table("Repeater neighbours", q_neighbours(), 12, y, 12, 8,
+                   desc="Zero-hop neighbours each repeater can hear. Neighbour "
+                        "keys use the same 12-hex prefix as the node table, so "
+                        "the two join."))
+
+    y += 8
+    p.append(row("Collector health", y))
+    y += 1
+    p.append(timeseries("Points written", q_collector("points_written"),
+                        0, y, 8, 7, legend_table=True,
+                        overrides=[color_override("points_written", SLOT[0])]))
+    p.append(timeseries("Points dropped", q_collector("points_dropped"),
+                        8, y, 8, 7, legend_table=True,
+                        desc="Non-zero means writes are being rejected or the "
+                             "buffer overflowed. Should stay flat.",
+                        overrides=[color_override("points_dropped", CRITICAL)]))
+    p.append(timeseries("Spool on disk", q_collector("spool_bytes"),
+                        16, y, 8, 7, unit="bytes", legend_table=True,
+                        desc="Growing means InfluxDB is unreachable but nothing "
+                             "is being lost yet.",
+                        overrides=[color_override("spool_bytes", WARNING)]))
+
+    return {
+        "uid": "meshcore-platform",
+        "title": "MeshCore Platform",
+        "description": "Heard traffic, node registry and repeater telemetry "
+                       "from a MeshCore companion radio on USB serial.",
+        "tags": ["meshcore", "lora"],
+        "timezone": "browser",
+        "schemaVersion": 39,
+        "version": 0,
+        "refresh": "1m",
+        "time": {"from": "now-24h", "to": "now"},
+        "editable": True,
+        "graphTooltip": 1,
+        "templating": {"list": [
+            {"name": "bucket", "type": "textbox", "label": "Bucket",
+             "query": "meshcore", "current": {"text": "meshcore",
+                                              "value": "meshcore"},
+             "options": [], "hide": 0},
+            {"name": "node", "type": "query", "label": "Receiver",
+             "datasource": DS, "refresh": 1, "multi": True, "includeAll": True,
+             "allValue": ".*", "current": {"text": "All", "value": "$__all"},
+             "options": [], "hide": 0,
+             "query": 'import "influxdata/influxdb/schema"\n'
+                      'schema.tagValues(bucket: "${bucket}", tag: "node", '
+                      'predicate: (r) => r._measurement == "mc_rx")'},
+        ]},
+        "panels": p,
+    }
+
+
+if __name__ == "__main__":
+    print(json.dumps(build(), indent=2))

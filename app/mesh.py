@@ -210,6 +210,9 @@ class MeshManager:
         self._log_size = log_size
         self._log_seq = 0
         self._listeners: set[Callable[[dict], None]] = set()
+        # Raw event taps, for consumers that need every event rather than the
+        # operator-facing subset the websocket carries.
+        self._event_hooks: list[Callable[[str, Any], None]] = []
         self._run_task: asyncio.Task | None = None
         self._stopping = False
 
@@ -229,6 +232,15 @@ class MeshManager:
 
     def add_listener(self, fn: Callable[[dict], None]) -> None:
         self._listeners.add(fn)
+
+    def add_event_hook(self, fn: Callable[[str, Any], None]) -> None:
+        """Tap the raw event stream, including events the console never shows.
+
+        Registered on the manager rather than on the MeshCore object because
+        that object is replaced on every reconnect, and a hook attached to the
+        old one would silently stop firing after the first USB blip.
+        """
+        self._event_hooks.append(fn)
 
     def remove_listener(self, fn: Callable[[dict], None]) -> None:
         self._listeners.discard(fn)
@@ -354,8 +366,17 @@ class MeshManager:
 
     def _on_event(self, ev) -> None:
         name = getattr(ev.type, "name", str(ev.type))
-        # These fire constantly and carry no operator value.
-        if name in {"OK", "NO_MORE_MSGS"}:
+        for hook in self._event_hooks:
+            try:
+                hook(name, ev.payload)
+            except Exception:
+                log.exception("event hook failed")
+        # These fire constantly and carry no operator value. RX_LOG_DATA is
+        # here because companion firmware reports every frame it demodulates:
+        # pushing that through the event ring and out to every websocket would
+        # flood the console and evict everything worth reading from the
+        # backlog. The telemetry collector reads it via an event hook instead.
+        if name in {"OK", "NO_MORE_MSGS", "RX_LOG_DATA"}:
             return
         if name in {"LOGIN_SUCCESS", "LOGIN_FAILED"}:
             self._note_login(name, ev.payload)

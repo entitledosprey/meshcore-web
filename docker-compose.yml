@@ -17,6 +17,15 @@ services:
       MESH_PASSWORD_FILE: /data/passwords.json
       MESH_MESSAGE_FILE: /data/messages.json
       TZ: ${TZ:-Etc/UTC}
+      # Telemetry. With INFLUX_URL/INFLUX_TOKEN unset the console runs exactly
+      # as before and the collector stays down, so this is safe to deploy
+      # before the VLAN rule for 8086 exists.
+      INFLUX_URL: ${INFLUX_URL:-}
+      INFLUX_TOKEN: ${INFLUX_TOKEN:-}
+      INFLUX_ORG: ${INFLUX_ORG:-home}
+      INFLUX_BUCKET: ${INFLUX_BUCKET:-meshcore}
+      TELEMETRY_SPOOL_DIR: /data/spool
+      TELEMETRY_NODE: ${TELEMETRY_NODE:-}
     group_add:
       - "20"   # dialout on Debian/Ubuntu hosts
 
