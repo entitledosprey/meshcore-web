@@ -171,6 +171,38 @@ def q_repeater_table():
                     "flood_dups", "rtt_ms"])'''
 
 
+def q_repeater_telem(type_name: str):
+    """One sensor type over time.
+
+    Split by type rather than charted together because LPP telemetry mixes
+    units freely -- degrees, volts, percent -- and putting them on one axis
+    would need a second y-scale, which is never the right answer.
+    """
+    return HEAD + (
+        '  |> filter(fn: (r) => r._measurement == "mc_repeater_telem")\n'
+        '  |> filter(fn: (r) => r.type == "%s")\n'
+        '  |> group(columns: ["repeater", "channel"])\n'
+        '  |> aggregateWindow(every: v.windowPeriod, fn: last, '
+        'createEmpty: false)' % type_name)
+
+
+def q_repeater_telem_table():
+    """Every sensor reading, whatever its type.
+
+    Temperature and battery voltage are what a bare repeater reports; anything
+    with external sensors attached shows up here too, without needing a new
+    panel per sensor type.
+    """
+    return HEAD + (
+        '  |> filter(fn: (r) => r._measurement == "mc_repeater_telem")\n'
+        '  |> group(columns: ["repeater", "type", "channel"])\n'
+        '  |> last()\n'
+        '  |> group()\n'
+        '  |> keep(columns: ["repeater", "type", "channel", "_value", "_time"])\n'
+        '  |> rename(columns: {_value: "value", _time: "reading"})\n'
+        '  |> sort(columns: ["repeater", "type"])')
+
+
 def q_neighbours():
     return HEAD + '''  |> filter(fn: (r) => r._measurement == "mc_neighbour" and r._field == "snr")
   |> group(columns: ["repeater", "neighbour"])
@@ -463,7 +495,7 @@ def build() -> dict:
     y += 9
     p.append(row("Nodes", y))
     y += 1
-    p.append(table("Nodes heard", q_node_table(), 0, y, 12, 10,
+    p.append(table("Node registry", q_node_table(), 0, y, 12, 10,
                    desc="Built from overheard adverts. Keyed on public key, so "
                         "a node that renames itself stays one row."))
     p.append(geomap("Node locations", q_node_map(), 12, y, 12, 10,
@@ -472,24 +504,34 @@ def build() -> dict:
     y += 10
     p.append(row("Repeaters", y))
     y += 1
-    p.append(timeseries("Battery", q_repeater("bat"), 0, y, 8, 8, unit="mvolt",
-                        legend_table=True))
+    p.append(timeseries("Battery", q_repeater("bat"), 0, y, 6, 8, unit="mvolt",
+                        legend_table=True,
+                        desc="From the binary status request. The telemetry "
+                             "path reports the same cell in volts, which is a "
+                             "free cross-check that both decoders agree."))
+    p.append(timeseries("Temperature", q_repeater_telem("temperature"),
+                        6, y, 6, 8, unit="celsius", legend_table=True,
+                        desc="MCU temperature, from the LPP telemetry request. "
+                             "The binary status struct has no temperature "
+                             "field, so this is the only path that carries it."))
     p.append(timeseries("TX queue depth", q_repeater("tx_queue_len"),
-                        8, y, 8, 8, legend_table=True,
+                        12, y, 6, 8, legend_table=True,
                         desc="A queue that does not drain means the repeater is "
                              "transmitting slower than it is being asked to."))
-    p.append(timeseries("Round-trip time", q_repeater("rtt_ms"), 16, y, 8, 8,
+    p.append(timeseries("Round-trip time", q_repeater("rtt_ms"), 18, y, 6, 8,
                         unit="ms", legend_table=True,
                         desc="How long a status request took over the mesh."))
     y += 8
-    p.append(table("Repeater status", q_repeater_table(), 0, y, 12, 8,
+    p.append(table("Repeater status", q_repeater_table(), 0, y, 8, 8,
                    desc="Latest reading per repeater you own and have "
                         "credentials for."))
-    p.append(table("Repeater neighbours", q_neighbours(), 12, y, 12, 8,
+    p.append(table("Repeater sensors", q_repeater_telem_table(), 8, y, 8, 8,
+                   desc="Latest value for every LPP telemetry channel, "
+                        "including any external sensors."))
+    p.append(table("Repeater neighbours", q_neighbours(), 16, y, 8, 8,
                    desc="Zero-hop neighbours each repeater can hear. Neighbour "
                         "keys use the same 12-hex prefix as the node table, so "
                         "the two join."))
-
     y += 8
     p.append(row("Collector health", y))
     y += 1

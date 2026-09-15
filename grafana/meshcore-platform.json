@@ -940,7 +940,7 @@
     },
     {
       "type": "table",
-      "title": "Nodes heard",
+      "title": "Node registry",
       "id": 15,
       "datasource": {
         "type": "influxdb",
@@ -1116,10 +1116,10 @@
         "type": "influxdb",
         "uid": "cf9lcoakbb9j4a"
       },
-      "description": "",
+      "description": "From the binary status request. The telemetry path reports the same cell in volts, which is a free cross-check that both decoders agree.",
       "gridPos": {
         "h": 8,
-        "w": 8,
+        "w": 6,
         "x": 0,
         "y": 36
       },
@@ -1186,8 +1186,84 @@
     },
     {
       "type": "timeseries",
-      "title": "TX queue depth",
+      "title": "Temperature",
       "id": 19,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "cf9lcoakbb9j4a"
+      },
+      "description": "MCU temperature, from the LPP telemetry request. The binary status struct has no temperature field, so this is the only path that carries it.",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 36
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "cf9lcoakbb9j4a"
+          },
+          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mc_repeater_telem\")\n  |> filter(fn: (r) => r.type == \"temperature\")\n  |> group(columns: [\"repeater\", \"channel\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "pointSize": 8,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisBorderShow": false,
+            "gradientMode": "none",
+            "barAlignment": 0,
+            "lineInterpolation": "linear",
+            "spanNulls": false,
+            "barWidthFactor": 0.9
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "TX queue depth",
+      "id": 20,
       "datasource": {
         "type": "influxdb",
         "uid": "cf9lcoakbb9j4a"
@@ -1195,8 +1271,8 @@
       "description": "A queue that does not drain means the repeater is transmitting slower than it is being asked to.",
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 8,
+        "w": 6,
+        "x": 12,
         "y": 36
       },
       "targets": [
@@ -1263,7 +1339,7 @@
     {
       "type": "timeseries",
       "title": "Round-trip time",
-      "id": 20,
+      "id": 21,
       "datasource": {
         "type": "influxdb",
         "uid": "cf9lcoakbb9j4a"
@@ -1271,8 +1347,8 @@
       "description": "How long a status request took over the mesh.",
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 16,
+        "w": 6,
+        "x": 18,
         "y": 36
       },
       "targets": [
@@ -1339,7 +1415,7 @@
     {
       "type": "table",
       "title": "Repeater status",
-      "id": 21,
+      "id": 22,
       "datasource": {
         "type": "influxdb",
         "uid": "cf9lcoakbb9j4a"
@@ -1347,7 +1423,7 @@
       "description": "Latest reading per repeater you own and have credentials for.",
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 8,
         "x": 0,
         "y": 44
       },
@@ -1394,8 +1470,64 @@
     },
     {
       "type": "table",
+      "title": "Repeater sensors",
+      "id": 23,
+      "datasource": {
+        "type": "influxdb",
+        "uid": "cf9lcoakbb9j4a"
+      },
+      "description": "Latest value for every LPP telemetry channel, including any external sensors.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 44
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "cf9lcoakbb9j4a"
+          },
+          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mc_repeater_telem\")\n  |> group(columns: [\"repeater\", \"type\", \"channel\"])\n  |> last()\n  |> group()\n  |> keep(columns: [\"repeater\", \"type\", \"channel\", \"_value\", \"_time\"])\n  |> rename(columns: {_value: \"value\", _time: \"reading\"})\n  |> sort(columns: [\"repeater\", \"type\"])",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": true
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "type": "table",
       "title": "Repeater neighbours",
-      "id": 22,
+      "id": 24,
       "datasource": {
         "type": "influxdb",
         "uid": "cf9lcoakbb9j4a"
@@ -1403,8 +1535,8 @@
       "description": "Zero-hop neighbours each repeater can hear. Neighbour keys use the same 12-hex prefix as the node table, so the two join.",
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
+        "w": 8,
+        "x": 16,
         "y": 44
       },
       "targets": [
@@ -1451,7 +1583,7 @@
     {
       "type": "row",
       "title": "Collector health",
-      "id": 23,
+      "id": 25,
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -1464,7 +1596,7 @@
     {
       "type": "timeseries",
       "title": "Points written",
-      "id": 24,
+      "id": 26,
       "datasource": {
         "type": "influxdb",
         "uid": "cf9lcoakbb9j4a"
@@ -1556,7 +1688,7 @@
     {
       "type": "timeseries",
       "title": "Points dropped",
-      "id": 25,
+      "id": 27,
       "datasource": {
         "type": "influxdb",
         "uid": "cf9lcoakbb9j4a"
@@ -1648,7 +1780,7 @@
     {
       "type": "timeseries",
       "title": "Spool on disk",
-      "id": 26,
+      "id": 28,
       "datasource": {
         "type": "influxdb",
         "uid": "cf9lcoakbb9j4a"
