@@ -1018,7 +1018,7 @@
             "type": "influxdb",
             "uid": "cf9lcoakbb9j4a"
           },
-          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mc_node\")\n  |> filter(fn: (r) => r._field == \"lat\" or r._field == \"lon\")\n  |> group(columns: [\"pubkey\", \"name\", \"type\", \"_field\"])\n  |> last()\n  |> group(columns: [\"pubkey\", \"name\", \"type\"])\n  |> pivot(rowKey: [\"pubkey\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> group()\n  |> keep(columns: [\"pubkey\", \"name\", \"type\", \"lat\", \"lon\"])",
+          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mc_node\")\n  |> filter(fn: (r) => r._field == \"lat\" or r._field == \"lon\")\n  |> group(columns: [\"pubkey\", \"name\", \"type\", \"_field\"])\n  |> last()\n  |> group(columns: [\"pubkey\", \"name\", \"type\"])\n  |> pivot(rowKey: [\"pubkey\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> group()\n  |> keep(columns: [\"pubkey\", \"name\", \"type\", \"lat\", \"lon\"])\n  // Nodes that set the \"has location\" advert flag but never got a fix report\n  // 0,0. Left in, a single one of them drags a fit-to-data view out to the\n  // Gulf of Guinea and the mesh becomes an unreadable dot.\n  |> filter(fn: (r) => not (r.lat > -0.01 and r.lat < 0.01\n                            and r.lon > -0.01 and r.lon < 0.01))",
           "refId": "A"
         }
       ],
@@ -1042,9 +1042,9 @@
       },
       "options": {
         "view": {
-          "id": "fit",
-          "lat": 0,
-          "lon": 0,
+          "id": "coords",
+          "lat": 30.3,
+          "lon": -97.9,
           "zoom": 8
         },
         "basemap": {
@@ -1543,7 +1543,7 @@
         "type": "influxdb",
         "uid": "cf9lcoakbb9j4a"
       },
-      "description": "Zero-hop neighbours each repeater can hear. Neighbour keys use the same 12-hex prefix as the node table, so the two join.",
+      "description": "Zero-hop neighbours each repeater can hear, named from overheard adverts and the radio's contact list. The key column falls back to the raw prefix when the node has not been heard advertising yet.",
       "gridPos": {
         "h": 8,
         "w": 8,
@@ -1556,7 +1556,7 @@
             "type": "influxdb",
             "uid": "cf9lcoakbb9j4a"
           },
-          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mc_neighbour\" and r._field == \"snr\")\n  |> group(columns: [\"repeater\", \"neighbour\"])\n  |> last()\n  |> group()\n  |> sort(columns: [\"_value\"], desc: true)\n  |> keep(columns: [\"repeater\", \"neighbour\", \"_value\", \"_time\"])\n  |> rename(columns: {_value: \"SNR\", _time: \"seen\"})",
+          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mc_neighbour\" and r._field == \"snr\")\n  |> group(columns: [\"repeater\", \"neighbour\"])\n  |> last()\n  |> group()\n  |> sort(columns: [\"_value\"], desc: true)\n  |> keep(columns: [\"repeater\", \"neighbour_name\", \"neighbour\", \"_value\", \"_time\"])\n  |> rename(columns: {_value: \"SNR\", _time: \"seen\", neighbour_name: \"heard\",\n                      neighbour: \"key\"})",
           "refId": "A"
         }
       ],

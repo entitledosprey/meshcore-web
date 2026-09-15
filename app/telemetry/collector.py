@@ -63,7 +63,7 @@ class Collector:
         self.repeaters = RepeaterPoller(
             self.mesh, self.writer, interval=self.cfg.repeater_interval,
             neighbour_interval=self.cfg.neighbour_interval,
-            stagger=self.cfg.repeater_stagger)
+            stagger=self.cfg.repeater_stagger, name_map=self.name_map)
         await self.repeaters.start()
 
         self._task = asyncio.create_task(self._heartbeat())
@@ -97,6 +97,25 @@ class Collector:
         for comp in (self.rx, self.local):
             if comp is not None and getattr(comp, "node", None) != node:
                 comp.node = node
+
+    def name_map(self) -> dict[str, str]:
+        """Public key prefix -> name, for resolving repeater neighbour tables.
+
+        Two sources, because neither is complete: the radio's contact list is
+        authoritative but only holds what autoadd accepted, while the advert
+        registry covers everything overheard including nodes that never became
+        contacts. Contacts win where both know a key.
+        """
+        out = dict(self.rx.names) if self.rx else {}
+        try:
+            for c in self.mesh.contacts():
+                key = (c.get("public_key") or "").lower()[:12]
+                name = c.get("adv_name")
+                if key and name:
+                    out[key] = name
+        except Exception:
+            log.debug("contact list unavailable for name map", exc_info=True)
+        return out
 
     # ---------- heartbeat ----------
 

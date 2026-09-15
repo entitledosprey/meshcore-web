@@ -215,11 +215,17 @@ def _float(v: Any) -> float | None:
 class RxLogCollector:
     """Live path: RX_LOG_DATA events in, points out."""
 
-    def __init__(self, writer, node: str, dedupe_ttl: float = 90.0):
+    def __init__(self, writer, node: str, dedupe_ttl: float = 90.0,
+                 max_names: int = 5000):
         self.writer = writer
         self.node = node
         self.deduper = Deduper(dedupe_ttl)
         self.clock = Clock()
+        # pubkey prefix -> advertised name, harvested from ADVERTs as they are
+        # overheard. Repeaters report their neighbours as bare key prefixes, so
+        # this is what turns a neighbour table into readable names.
+        self.names: dict[str, str] = {}
+        self.max_names = max_names
         self.frames = 0
         self.dups = 0
         self.adverts = 0
@@ -239,9 +245,21 @@ class RxLogCollector:
                 self.dups += 1
             if payload.get("payload_type") == PAYLOAD_TYPE_ADVERT:
                 self.adverts += 1
+                self._remember_name(payload)
         except Exception:
             self.errors += 1
             log.exception("could not build points for frame")
+
+    def _remember_name(self, payload: dict) -> None:
+        key, name = payload.get("adv_key"), payload.get("adv_name")
+        if not key or not name:
+            return
+        if len(self.names) >= self.max_names and str(key)[:12] not in self.names:
+            # Unbounded growth would be a slow leak on a busy mesh. Names change
+            # rarely, so dropping an arbitrary entry costs at most one advert
+            # interval before it is learned again.
+            self.names.pop(next(iter(self.names)), None)
+        self.names[str(key)[:12].lower()] = str(name)
 
     def stats(self) -> dict:
         return {
@@ -249,5 +267,6 @@ class RxLogCollector:
             "duplicate_frames": self.dups,
             "adverts_seen": self.adverts,
             "decode_errors": self.errors,
+            "names_known": len(self.names),
             "last_frame": self.last_frame,
         }

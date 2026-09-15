@@ -181,6 +181,103 @@ def test_collector_survives_a_malformed_frame():
 
 
 # --------------------------------------------------------------------------
+# advert name registry
+# --------------------------------------------------------------------------
+
+def test_adverts_build_a_name_registry():
+    class FakeWriter:
+        def write_many(self, lines): pass
+
+    c = RxLogCollector(FakeWriter(), "obs")
+    c.handle(dict(ADVERT))
+    assert c.names["258e52d610f2"] == "Fischer Repeater"
+
+
+def test_name_registry_keys_on_the_same_prefix_width_as_neighbours():
+    """Repeaters report neighbours as 6-byte prefixes; the map must match."""
+    class FakeWriter:
+        def write_many(self, lines): pass
+
+    c = RxLogCollector(FakeWriter(), "obs")
+    c.handle(dict(ADVERT))
+    key = ADVERT["adv_key"][:12]
+    assert len(key) == 12 and key in c.names
+
+
+def test_name_registry_ignores_adverts_without_a_name():
+    class FakeWriter:
+        def write_many(self, lines): pass
+
+    c = RxLogCollector(FakeWriter(), "obs")
+    d = dict(ADVERT)
+    del d["adv_name"]
+    c.handle(d)
+    assert c.names == {}
+
+
+def test_name_registry_stays_bounded():
+    class FakeWriter:
+        def write_many(self, lines): pass
+
+    c = RxLogCollector(FakeWriter(), "obs", max_names=10)
+    for i in range(50):
+        c.handle(dict(ADVERT, adv_key=f"{i:012d}aabb", adv_name=f"node{i}"))
+    assert len(c.names) <= 10
+
+
+def test_neighbour_points_carry_a_name_and_fall_back_to_the_key():
+    from app.telemetry.pollers import RepeaterPoller
+
+    written = []
+
+    class FakeWriter:
+        def write(self, line): written.append(line)
+
+    class FakeMesh:
+        connected = True
+        def contacts(self): return []
+
+    p = RepeaterPoller(FakeMesh(), FakeWriter(),
+                       name_map=lambda: {"aaaabbbbcccc": "Hill Top"})
+    res = {"neighbours": [{"pubkey": "aaaabbbbcccc", "snr": 9.0, "secs_ago": 5},
+                          {"pubkey": "ddddeeeeffff", "snr": 3.0, "secs_ago": 9}]}
+
+    async def fake_run(fn, timeout=0):
+        return res
+
+    p.mesh.run = fake_run
+    asyncio.run(p._poll_neighbours({}, {"repeater": "R", "pubkey": "pk"}))
+
+    assert any("neighbour_name=Hill\\ Top" in l for l in written)
+    # unknown key still gets the tag, so the series does not split later
+    assert any("neighbour_name=ddddeeeeffff" in l for l in written)
+
+
+def test_neighbour_name_lookup_failure_is_not_fatal():
+    from app.telemetry.pollers import RepeaterPoller
+
+    written = []
+
+    class FakeWriter:
+        def write(self, line): written.append(line)
+
+    class FakeMesh:
+        connected = True
+
+    def boom():
+        raise RuntimeError("contacts unavailable")
+
+    p = RepeaterPoller(FakeMesh(), FakeWriter(), name_map=boom)
+
+    async def fake_run(fn, timeout=0):
+        return {"neighbours": [{"pubkey": "aaaabbbbcccc", "snr": 9.0, "secs_ago": 5}]}
+
+    p.mesh.run = fake_run
+    asyncio.run(p._poll_neighbours({}, {"repeater": "R", "pubkey": "pk"}))
+    assert any("mc_neighbour" in l for l in written)
+
+
+# --------------------------------------------------------------------------
 # writer: outage behaviour
 # --------------------------------------------------------------------------
 

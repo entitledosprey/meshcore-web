@@ -45,6 +45,11 @@ BASEMAP = {
     },
 }
 
+# Pinned rather than fit-to-data: a fit view is only ever as good as the worst
+# coordinate in the set, so one bad advert reframes the whole map. Centred on
+# the Hill Country / Austin corridor where the mesh actually lives.
+VIEW = {"id": "coords", "lat": 30.3, "lon": -97.9, "zoom": 8}
+
 # Series naming: after CLEAN the only label left is the identity tag.
 REPEATER_NAME = "${__field.labels.repeater}"
 NODE_NAME = "${__field.labels.node}"
@@ -178,7 +183,12 @@ def q_node_map():
   |> group(columns: ["pubkey", "name", "type"])
   |> pivot(rowKey: ["pubkey"], columnKey: ["_field"], valueColumn: "_value")
   |> group()
-  |> keep(columns: ["pubkey", "name", "type", "lat", "lon"])'''
+  |> keep(columns: ["pubkey", "name", "type", "lat", "lon"])
+  // Nodes that set the "has location" advert flag but never got a fix report
+  // 0,0. Left in, a single one of them drags a fit-to-data view out to the
+  // Gulf of Guinea and the mesh becomes an unreadable dot.
+  |> filter(fn: (r) => not (r.lat > -0.01 and r.lat < 0.01
+                            and r.lon > -0.01 and r.lon < 0.01))'''
 
 
 def q_repeater(field: str, agg: str = "last"):
@@ -238,8 +248,9 @@ def q_neighbours():
   |> last()
   |> group()
   |> sort(columns: ["_value"], desc: true)
-  |> keep(columns: ["repeater", "neighbour", "_value", "_time"])
-  |> rename(columns: {_value: "SNR", _time: "seen"})'''
+  |> keep(columns: ["repeater", "neighbour_name", "neighbour", "_value", "_time"])
+  |> rename(columns: {_value: "SNR", _time: "seen", neighbour_name: "heard",
+                      neighbour: "key"})'''
 
 
 def q_collector(field: str, agg: str = "last"):
@@ -439,7 +450,7 @@ def geomap(title, query, x, y, w, h, *, desc=""):
                            "steps": [{"color": "text", "value": None}]},
         }, "overrides": []},
         "options": {
-            "view": {"id": "fit", "lat": 0, "lon": 0, "zoom": 8},
+            "view": VIEW,
             "basemap": BASEMAP,
             "layers": [{
                 "type": "markers", "name": "Nodes",
@@ -568,9 +579,10 @@ def build() -> dict:
                    desc="Latest value for every LPP telemetry channel, "
                         "including any external sensors."))
     p.append(table("Repeater neighbours", q_neighbours(), 16, y, 8, 8,
-                   desc="Zero-hop neighbours each repeater can hear. Neighbour "
-                        "keys use the same 12-hex prefix as the node table, so "
-                        "the two join."))
+                   desc="Zero-hop neighbours each repeater can hear, named "
+                        "from overheard adverts and the radio's contact list. "
+                        "The key column falls back to the raw prefix when the "
+                        "node has not been heard advertising yet."))
     y += 8
     p.append(row("Collector health", y))
     y += 1

@@ -108,9 +108,14 @@ class RepeaterPoller:
     """Status, telemetry and neighbour tables from repeaters you own."""
 
     def __init__(self, mesh, writer, *, interval: float = 300.0,
-                 neighbour_interval: float = 1800.0, stagger: float = 20.0):
+                 neighbour_interval: float = 1800.0, stagger: float = 20.0,
+                 name_map=None):
         self.mesh = mesh
         self.writer = writer
+        # Callable returning {pubkey prefix: name}. Repeaters report neighbours
+        # as bare key prefixes; resolving them here rather than joining in the
+        # dashboard keeps the stored data readable on its own.
+        self.name_map = name_map
         self.interval = interval
         self.neighbour_interval = neighbour_interval
         self.stagger = stagger
@@ -235,12 +240,23 @@ class RepeaterPoller:
             return
         if not isinstance(res, dict):
             return
+        names = {}
+        if self.name_map is not None:
+            try:
+                names = self.name_map() or {}
+            except Exception:
+                log.debug("name lookup failed", exc_info=True)
         now = time.time_ns()
         for i, n in enumerate(res.get("neighbours") or []):
+            key = str(n.get("pubkey", ""))[:12].lower()
             self.writer.write(point(
                 "mc_neighbour",
                 {"repeater": tags["repeater"], "pubkey": tags["pubkey"],
-                 "neighbour": str(n.get("pubkey", ""))[:12]},
+                 "neighbour": key,
+                 # Always tagged, falling back to the key, so a neighbour whose
+                 # name is not known yet does not start a second series that
+                 # later splits away from the named one.
+                 "neighbour_name": names.get(key) or key},
                 {"snr": _float(n.get("snr")), "secs_ago": _int(n.get("secs_ago"))},
                 now + i))
         self.writer.write(point(
