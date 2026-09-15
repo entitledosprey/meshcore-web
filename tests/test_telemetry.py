@@ -253,6 +253,43 @@ def test_neighbour_points_carry_a_name_and_fall_back_to_the_key():
     assert any("neighbour_name=ddddeeeeffff" in l for l in written)
 
 
+def test_neighbours_are_not_fetched_unless_enabled():
+    """The heaviest request a repeater serves must not be on by default."""
+    from app.telemetry.pollers import RepeaterPoller
+
+    called = []
+
+    class FakeMesh:
+        connected = True
+        def is_logged_in(self, pk): return True
+        async def run(self, fn, timeout=0):
+            called.append(timeout)
+            return {"bat": 4100, "uptime": 10, "last_snr": 1.0}
+
+    class FakeWriter:
+        def write(self, line): pass
+
+    p = RepeaterPoller(FakeMesh(), FakeWriter())
+    assert p.neighbours is False
+    asyncio.run(p._poll_one({"adv_name": "R", "public_key": "ab" * 32}))
+    # status + telemetry only; no third call for neighbours
+    assert len(called) == 2
+
+
+def test_restart_does_not_fetch_neighbours_immediately():
+    """A fresh process must still wait a full interval before the heavy call."""
+    from app.telemetry.pollers import RepeaterPoller
+
+    class FakeMesh:
+        connected = True
+
+    p = RepeaterPoller(FakeMesh(), object(), neighbours=True,
+                       neighbour_interval=1800)
+    import time as _t
+    last = p._last_neighbours.get("newkey", p._started)
+    assert _t.monotonic() - last < 1800, "first cycle would fetch immediately"
+
+
 def test_neighbour_name_lookup_failure_is_not_fatal():
     from app.telemetry.pollers import RepeaterPoller
 
@@ -428,7 +465,7 @@ def test_collector_end_to_end_without_a_radio(tmp_path):
         spool_max_bytes=1 << 20, batch_size=500, flush_interval=60.0,
         local_interval=3600.0, repeater_interval=3600.0,
         neighbour_interval=3600.0, repeater_stagger=1.0, dedupe_ttl=90.0,
-        decrypt_channels=False)
+        decrypt_channels=False, neighbours=False, neighbour_count=24)
 
     async def go():
         c = Collector(m, cfg)

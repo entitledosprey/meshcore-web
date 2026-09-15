@@ -63,7 +63,9 @@ class Collector:
         self.repeaters = RepeaterPoller(
             self.mesh, self.writer, interval=self.cfg.repeater_interval,
             neighbour_interval=self.cfg.neighbour_interval,
-            stagger=self.cfg.repeater_stagger, name_map=self.name_map)
+            stagger=self.cfg.repeater_stagger, name_map=self.name_map,
+            neighbours=self.cfg.neighbours,
+            neighbour_count=self.cfg.neighbour_count)
         await self.repeaters.start()
 
         self._task = asyncio.create_task(self._heartbeat())

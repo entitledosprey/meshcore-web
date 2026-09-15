@@ -109,19 +109,31 @@ class RepeaterPoller:
 
     def __init__(self, mesh, writer, *, interval: float = 300.0,
                  neighbour_interval: float = 1800.0, stagger: float = 20.0,
-                 name_map=None):
+                 name_map=None, neighbours: bool = False,
+                 neighbour_count: int = 24):
         self.mesh = mesh
         self.writer = writer
         # Callable returning {pubkey prefix: name}. Repeaters report neighbours
         # as bare key prefixes; resolving them here rather than joining in the
         # dashboard keeps the stored data readable on its own.
         self.name_map = name_map
+        # Neighbour fetching is opt-in. It is by far the heaviest thing we ask
+        # a repeater to do -- a multi-packet response it has to assemble and
+        # send -- and it is the prime suspect for the 2026-09-15 hang, so it
+        # does not run unless explicitly turned on.
+        self.neighbours = neighbours
+        self.neighbour_count = neighbour_count
         self.interval = interval
         self.neighbour_interval = neighbour_interval
         self.stagger = stagger
         self.polls = 0
         self.failures = 0
         self.last_ok: float | None = None
+        # Seeded to now, not 0. Starting at 0 made the *first* successful poll
+        # after any restart fetch neighbours immediately, however long the
+        # configured interval was -- so a container restart could put the
+        # heaviest request on a repeater within seconds of it coming back.
+        self._started = time.monotonic()
         self._last_neighbours: dict[str, float] = {}
         self._task: asyncio.Task | None = None
 
@@ -193,7 +205,10 @@ class RepeaterPoller:
         self.last_ok = time.time()
 
         await self._poll_telemetry(contact, tags)
-        if time.monotonic() - self._last_neighbours.get(pk, 0) > self.neighbour_interval:
+        if not self.neighbours:
+            return
+        last = self._last_neighbours.get(pk, self._started)
+        if time.monotonic() - last > self.neighbour_interval:
             self._last_neighbours[pk] = time.monotonic()
             await self._poll_neighbours(contact, tags)
 
@@ -230,11 +245,16 @@ class RepeaterPoller:
 
     async def _poll_neighbours(self, contact: dict, tags: dict) -> None:
         try:
+            # One bounded request, not fetch_all_neighbours: that pages until
+            # it has the whole table, issuing back-to-back requests for large
+            # responses. A capped single request asks for a fixed, small amount
+            # and accepts a partial answer.
             res = await self.mesh.run(
-                lambda mc: mc.commands.fetch_all_neighbours(
-                    contact, pubkey_prefix_length=NEIGHBOUR_PREFIX_BYTES,
+                lambda mc: mc.commands.req_neighbours_sync(
+                    contact, count=self.neighbour_count,
+                    pubkey_prefix_length=NEIGHBOUR_PREFIX_BYTES,
                     min_timeout=15),
-                timeout=240)
+                timeout=120)
         except Exception:
             log.debug("neighbours request failed for %s", tags["repeater"], exc_info=True)
             return

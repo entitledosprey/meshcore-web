@@ -37,6 +37,8 @@ class TelemetryConfig:
     repeater_stagger: float
     dedupe_ttl: float
     decrypt_channels: bool
+    neighbours: bool
+    neighbour_count: int
 
     @classmethod
     def from_env(cls) -> "TelemetryConfig":
@@ -66,4 +68,10 @@ class TelemetryConfig:
             dedupe_ttl=_f("TELEMETRY_DEDUPE_TTL", 90.0),
             decrypt_channels=os.environ.get("TELEMETRY_DECRYPT_CHANNELS", "0")
             in ("1", "true", "yes"),
+            # Off by default. The neighbour request is the heaviest thing we
+            # ask of a repeater and is the open suspect for a hang; turn it on
+            # deliberately, per mesh, rather than inheriting it.
+            neighbours=os.environ.get("TELEMETRY_NEIGHBOURS", "0")
+            in ("1", "true", "yes"),
+            neighbour_count=max(1, min(255, int(_f("TELEMETRY_NEIGHBOUR_COUNT", 24)))),
         )

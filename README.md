@@ -95,9 +95,18 @@ and coordinates. That is the part a listen-only observer cannot provide.
 | `TELEMETRY_REPEATER_INTERVAL` | `300` | Seconds between repeater polls (floor 300) |
 | `TELEMETRY_NEIGHBOUR_INTERVAL` | `1800` | Seconds between neighbour fetches (floor 900) |
 | `TELEMETRY_DEDUPE_TTL` | `90` | Window for marking a re-heard packet as a repeat |
+| `TELEMETRY_NEIGHBOURS` | `0` | Fetch repeater neighbour tables. **Off by default** |
+| `TELEMETRY_NEIGHBOUR_COUNT` | `24` | Max neighbours per request; never pages |
 
 Repeater polling **transmits**, so the intervals have floors and repeaters are
-staggered rather than polled in a burst. Targets are the contacts marked owned
+staggered rather than polled in a burst.
+
+The neighbour request is the heaviest thing a repeater is asked to do here --
+it assembles and sends a multi-packet table -- so it is **opt-in**, capped, and
+never pages. A repeater of ours hung shortly after one on 2026-09-15; that was
+never proven to be the cause (the same request ran again afterwards without
+incident), but the request earns its keep far less than status and telemetry
+do, so it defaults to off. Targets are the contacts marked owned
 that also have a saved password — the same two lists the Repeaters tab edits.
 
 `GET /api/telemetry/status` reports what the collector has done. The counters
