@@ -28,6 +28,23 @@ PTYPE_COLOR = dict(zip(PTYPES, SLOT))
 BLUE_ORDINAL = ["#86b6ef", "#6da7ec", "#5598e7", "#3987e5",
                 "#2a78d6", "#256abf", "#1c5cab", "#184f95"]
 
+# CARTO's basemaps (Grafana's "default" basemap) now bake an "API KEY REQUIRED"
+# watermark into every tile and still return HTTP 200, so a status-code check
+# does not catch it -- the map just quietly renders branded. OpenStreetMap's
+# public tiles refuse unidentified clients with an "Access blocked" image, also
+# at HTTP 200. Esri's dark gray canvas serves clean tiles with no key and suits
+# a dark dashboard, so it is pinned explicitly rather than left to whatever
+# Grafana's default happens to be.
+BASEMAP = {
+    "type": "xyz",
+    "name": "Basemap",
+    "config": {
+        "url": "https://services.arcgisonline.com/ArcGIS/rest/services/"
+               "Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+        "attribution": "Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ",
+    },
+}
+
 GOOD, CRITICAL, WARNING = "#0ca30c", "#d03b3b", "#fab219"
 
 # Payload types charted individually. Fixed, not top-N: a top-N list repaints
@@ -405,7 +422,7 @@ def geomap(title, query, x, y, w, h, *, desc=""):
         }, "overrides": []},
         "options": {
             "view": {"id": "fit", "lat": 0, "lon": 0, "zoom": 8},
-            "basemap": {"type": "default", "name": "Basemap"},
+            "basemap": BASEMAP,
             "layers": [{
                 "type": "markers", "name": "Nodes",
                 "location": {"mode": "coords", "latitude": "lat",
