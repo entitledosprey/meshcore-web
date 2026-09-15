@@ -45,12 +45,24 @@ BASEMAP = {
     },
 }
 
+# Series naming: after CLEAN the only label left is the identity tag.
+REPEATER_NAME = "${__field.labels.repeater}"
+NODE_NAME = "${__field.labels.node}"
+
 GOOD, CRITICAL, WARNING = "#0ca30c", "#d03b3b", "#fab219"
 
 # Payload types charted individually. Fixed, not top-N: a top-N list repaints
 # every series whenever the ranking shifts, so a colour would stop meaning a
 # particular kind of traffic.
 NAMED_PTYPES = '["REQ", "PATH", "ANON_REQ", "GRP_TXT", "ADVERT", "RESPONSE"]'
+
+# Flux keeps _start/_stop/_measurement/_field in the group key, and Grafana
+# builds a series name out of every group-key column -- which is where legends
+# like `_value {_start="2026-09-14T..."}` come from. Dropping them leaves only
+# the identity tag, so displayName can render a bare, stable name. This also
+# makes byName colour overrides match: against the long generated name they
+# never did, so the palette silently fell back to Grafana's own colours.
+CLEAN = ('\n  |> drop(columns: ["_start", "_stop", "_measurement", "_field"])')
 
 RX = '''  |> filter(fn: (r) => r._measurement == "mc_rx")
   |> filter(fn: (r) => r.node =~ /^${node:regex}$/)'''
@@ -62,14 +74,14 @@ def q_frames_total():
     return HEAD + RX + '''
   |> filter(fn: (r) => r._field == "len")
   |> group()
-  |> count()'''
+  |> count()''' + CLEAN
 
 
 def q_unique_packets():
     return HEAD + RX + '''
   |> filter(fn: (r) => r._field == "len" and r.dup == "0")
   |> group()
-  |> count()'''
+  |> count()''' + CLEAN
 
 
 def q_repeat_rate():
@@ -91,7 +103,7 @@ def q_adverts():
     return HEAD + RX + '''
   |> filter(fn: (r) => r._field == "len" and r.ptype == "ADVERT")
   |> group()
-  |> count()'''
+  |> count()''' + CLEAN
 
 
 def q_nodes_heard():
@@ -109,7 +121,7 @@ def q_frames_by_type():
       if contains(value: r.ptype, set: {NAMED_PTYPES}) then r.ptype else "Other"}}))
   |> group(columns: ["ptype"])
   |> aggregateWindow(every: v.windowPeriod, fn: count, createEmpty: true)
-  |> map(fn: (r) => ({{r with _value: if exists r._value then r._value else 0}}))'''
+  |> map(fn: (r) => ({{r with _value: if exists r._value then r._value else 0}}))''' + CLEAN
 
 
 def q_frames_by_hops():
@@ -145,7 +157,7 @@ def q_snr_by_hops():
 
 def q_local(field: str):
     return HEAD + f'''  |> filter(fn: (r) => r._measurement == "mc_local" and r._field == "{field}")
-  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)'''
+  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)''' + CLEAN
 
 
 def q_node_table():
@@ -172,7 +184,7 @@ def q_node_map():
 def q_repeater(field: str, agg: str = "last"):
     return HEAD + f'''  |> filter(fn: (r) => r._measurement == "mc_repeater" and r._field == "{field}")
   |> group(columns: ["repeater"])
-  |> aggregateWindow(every: v.windowPeriod, fn: {agg}, createEmpty: false)'''
+  |> aggregateWindow(every: v.windowPeriod, fn: {agg}, createEmpty: false)''' + CLEAN
 
 
 def q_repeater_table():
@@ -200,7 +212,7 @@ def q_repeater_telem(type_name: str):
         '  |> filter(fn: (r) => r.type == "%s")\n'
         '  |> group(columns: ["repeater", "channel"])\n'
         '  |> aggregateWindow(every: v.windowPeriod, fn: last, '
-        'createEmpty: false)' % type_name)
+        'createEmpty: false)' % type_name) + CLEAN
 
 
 def q_repeater_telem_table():
@@ -233,7 +245,7 @@ def q_neighbours():
 def q_collector(field: str, agg: str = "last"):
     return HEAD + f'''  |> filter(fn: (r) => r._measurement == "mc_collector" and r._field == "{field}")
   |> group(columns: ["node", "_field"])
-  |> aggregateWindow(every: v.windowPeriod, fn: {agg}, createEmpty: false)'''
+  |> aggregateWindow(every: v.windowPeriod, fn: {agg}, createEmpty: false)''' + CLEAN
 
 
 def q_serial_up():
@@ -289,7 +301,8 @@ def stat(title, query, x, y, w=4, h=4, unit="short", decimals=None,
 
 def timeseries(title, query, x, y, w, h, *, unit="short", stack=False,
                fill=0, desc="", overrides=None, legend_table=False,
-               draw="line", width=2, points=False, minval=None):
+               draw="line", width=2, points=False, minval=None,
+               display_name=None, fixed_color=None):
     custom = {
         "drawStyle": draw,
         "lineWidth": width,
@@ -306,10 +319,15 @@ def timeseries(title, query, x, y, w, h, *, unit="short", stack=False,
         # as one shape.
         "barWidthFactor": 0.9,
     }
-    defaults = {"unit": unit, "custom": custom,
-                "color": {"mode": "palette-classic"},
+    color = ({"mode": "fixed", "fixedColor": fixed_color} if fixed_color
+             else {"mode": "palette-classic"})
+    defaults = {"unit": unit, "custom": custom, "color": color,
                 "thresholds": {"mode": "absolute",
                                "steps": [{"color": "text", "value": None}]}}
+    if display_name is not None:
+        # Renders the series as just its identity -- "ADVERT", "Osprey-HF-Kyle"
+        # -- instead of _value plus the whole label set.
+        defaults["displayName"] = display_name
     if minval is not None:
         defaults["min"] = minval
     return {
@@ -484,6 +502,7 @@ def build() -> dict:
         "Frames by payload type", q_frames_by_type(), 0, y, 16, 9,
         stack=True, fill=85, draw="bars", width=1, legend_table=True,
         overrides=ptype_overrides, minval=0,
+        display_name="${__field.labels.ptype}",
         desc="Stacked count per interval. Types beyond the six charted "
              "individually are folded into Other so a colour always means the "
              "same kind of traffic."))
@@ -506,6 +525,7 @@ def build() -> dict:
                            "says something about which repeaters are reaching us."))
     p.append(timeseries("Local radio noise floor", q_local("noise_floor"),
                         18, y, 6, 9, unit="dBm",
+                        display_name="Noise floor", fixed_color=SLOT[0],
                         desc="From the companion radio's own stats. Empty "
                              "until the collector runs against real hardware."))
 
@@ -522,21 +542,23 @@ def build() -> dict:
     p.append(row("Repeaters", y))
     y += 1
     p.append(timeseries("Battery", q_repeater("bat"), 0, y, 6, 8, unit="mvolt",
-                        legend_table=True,
+                        legend_table=True, display_name=REPEATER_NAME,
                         desc="From the binary status request. The telemetry "
                              "path reports the same cell in volts, which is a "
                              "free cross-check that both decoders agree."))
     p.append(timeseries("Temperature", q_repeater_telem("temperature"),
                         6, y, 6, 8, unit="celsius", legend_table=True,
+                        display_name=REPEATER_NAME,
                         desc="MCU temperature, from the LPP telemetry request. "
                              "The binary status struct has no temperature "
                              "field, so this is the only path that carries it."))
     p.append(timeseries("TX queue depth", q_repeater("tx_queue_len"),
                         12, y, 6, 8, legend_table=True,
+                        display_name=REPEATER_NAME,
                         desc="A queue that does not drain means the repeater is "
                              "transmitting slower than it is being asked to."))
     p.append(timeseries("Round-trip time", q_repeater("rtt_ms"), 18, y, 6, 8,
-                        unit="ms", legend_table=True,
+                        unit="ms", legend_table=True, display_name=REPEATER_NAME,
                         desc="How long a status request took over the mesh."))
     y += 8
     p.append(table("Repeater status", q_repeater_table(), 0, y, 8, 8,
@@ -554,17 +576,17 @@ def build() -> dict:
     y += 1
     p.append(timeseries("Points written", q_collector("points_written"),
                         0, y, 8, 7, legend_table=True,
-                        overrides=[color_override("points_written", SLOT[0])]))
+                        display_name=NODE_NAME, fixed_color=SLOT[0]))
     p.append(timeseries("Points dropped", q_collector("points_dropped"),
                         8, y, 8, 7, legend_table=True,
                         desc="Non-zero means writes are being rejected or the "
                              "buffer overflowed. Should stay flat.",
-                        overrides=[color_override("points_dropped", CRITICAL)]))
+                        display_name=NODE_NAME, fixed_color=CRITICAL))
     p.append(timeseries("Spool on disk", q_collector("spool_bytes"),
                         16, y, 8, 7, unit="bytes", legend_table=True,
                         desc="Growing means InfluxDB is unreachable but nothing "
                              "is being lost yet.",
-                        overrides=[color_override("spool_bytes", WARNING)]))
+                        display_name=NODE_NAME, fixed_color=WARNING))
 
     return {
         "uid": "meshcore-platform",
