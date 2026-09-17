@@ -1,0 +1,76 @@
+{
+  "title": "Repeater temperature high",
+  "ruleGroup": "meshcore",
+  "condition": "C",
+  "for": "10m",
+  "noDataState": "OK",
+  "execErrState": "Error",
+  "labels": {
+    "severity": "warning",
+    "service": "meshcore"
+  },
+  "annotations": {
+    "summary": "{{ $labels.repeater }} is running at {{ humanize $values.B.Value }} C",
+    "description": "MCU temperature from the LPP telemetry request has stayed above 55 C for 10 minutes. Repeater telemetry is polled every 5 minutes, so this is at least two consecutive readings. There is no watchdog on nRF52 boards, so a thermal hang needs a physical power cycle.",
+    "__dashboardUid__": "meshcore-platform",
+    "__panelId__": "19"
+  },
+  "data": [
+    {
+      "refId": "A",
+      "relativeTimeRange": {
+        "from": 3600,
+        "to": 0
+      },
+      "datasourceUid": "cf9lcoakbb9j4a",
+      "model": {
+        "refId": "A",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "cf9lcoakbb9j4a"
+        },
+        "query": "from(bucket: \"meshcore\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mc_repeater_telem\")\n  |> filter(fn: (r) => r.type == \"temperature\")\n  |> group(columns: [\"repeater\"])\n  |> aggregateWindow(every: 5m, fn: max, createEmpty: false)\n  |> drop(columns: [\"_start\", \"_stop\", \"_measurement\", \"_field\", \"type\", \"channel\", \"pubkey\"])"
+      }
+    },
+    {
+      "refId": "B",
+      "datasourceUid": "__expr__",
+      "model": {
+        "refId": "B",
+        "type": "reduce",
+        "expression": "A",
+        "reducer": "last",
+        "settings": {
+          "mode": "dropNN"
+        },
+        "datasource": {
+          "type": "__expr__",
+          "uid": "__expr__"
+        }
+      }
+    },
+    {
+      "refId": "C",
+      "datasourceUid": "__expr__",
+      "model": {
+        "refId": "C",
+        "type": "threshold",
+        "expression": "B",
+        "conditions": [
+          {
+            "evaluator": {
+              "type": "gt",
+              "params": [
+                55
+              ]
+            }
+          }
+        ],
+        "datasource": {
+          "type": "__expr__",
+          "uid": "__expr__"
+        }
+      }
+    }
+  ]
+}
