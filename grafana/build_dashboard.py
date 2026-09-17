@@ -141,11 +141,28 @@ def q_frames_by_hops():
   |> rename(columns: {_value: "frames"})'''
 
 
+SNR_BUCKET_DB = 2.0
+
+
 def q_snr_heatmap():
-    return HEAD + RX + '''
+    """SNR distribution, bucketed in InfluxDB rather than in the browser.
+
+    Sending one point per heard frame does not scale: Grafana truncated this
+    panel at 6961 points (it can draw ~696 at this width), so the picture was
+    silently incomplete. Counting into fixed dB buckets server-side keeps each
+    series far under that and, unlike averaging, preserves the shape -- the
+    distribution here is bimodal, which is the whole reason to draw it.
+
+    Emitted as pre-bucketed "time series buckets": one series per dB bucket,
+    named by its lower bound, which is the format the heatmap panel reads when
+    `calculate` is off.
+    """
+    return ('import "math"\n\n' + HEAD + RX + f'''
   |> filter(fn: (r) => r._field == "snr")
-  |> group()
-  |> keep(columns: ["_time", "_value"])'''
+  |> map(fn: (r) => ({{r with snr_bucket:
+      string(v: int(v: math.floor(x: r._value / {SNR_BUCKET_DB}) * {SNR_BUCKET_DB}))}}))
+  |> group(columns: ["snr_bucket"])
+  |> aggregateWindow(every: v.windowPeriod, fn: count, createEmpty: false)''') + CLEAN
 
 
 def q_snr_by_hops():
@@ -406,15 +423,20 @@ def table(title, query, x, y, w, h, *, desc="", overrides=None):
     }
 
 
-def heatmap(title, query, x, y, w, h, *, desc=""):
-    return {
+def heatmap(title, query, x, y, w, h, *, desc="", min_interval=None,
+            bucket_label=None):
+    panel = {
         "type": "heatmap", "title": title, "id": nid(), "datasource": DS,
         "description": desc,
         "gridPos": {"h": h, "w": w, "x": x, "y": y},
         "targets": targets(query),
+        # Floors v.windowPeriod so the query cannot return one column per pixel
+        # when the dashboard is on a short time range.
+        "interval": min_interval,
         "options": {
-            "calculate": True,
-            "calculation": {"yBuckets": {"mode": "size", "value": "2"}},
+            # Off: the buckets are computed in Flux, so the panel must read them
+            # rather than re-bucket raw points it was never sent.
+            "calculate": False,
             # One hue, light to dark. A rainbow scheme here would imply
             # categories where there is only magnitude.
             "color": {"mode": "scheme", "scheme": "Blues", "steps": ytosteps(),
@@ -428,10 +450,16 @@ def heatmap(title, query, x, y, w, h, *, desc=""):
             "rowsFrame": {"layout": "auto"},
             "showValue": "never",
         },
-        "fieldConfig": {"defaults": {"custom": {"hideFrom":
-                        {"legend": False, "tooltip": False, "viz": False}}},
-                        "overrides": []},
+        "fieldConfig": {"defaults": {
+            "custom": {"hideFrom": {"legend": False, "tooltip": False,
+                                    "viz": False}},
+            # The series name IS the bucket's lower bound in this format.
+            "displayName": bucket_label,
+        }, "overrides": []},
     }
+    if min_interval is None:
+        del panel["interval"]
+    return panel
 
 
 def ytosteps():
@@ -527,8 +555,12 @@ def build() -> dict:
     p.append(row("RF quality", y))
     y += 1
     p.append(heatmap("SNR distribution", q_snr_heatmap(), 0, y, 12, 9,
-                     desc="Every frame's signal-to-noise, bucketed. Bands "
-                          "correspond to distinct sets of neighbours."))
+                     min_interval="10m",
+                     bucket_label="${__field.labels.snr_bucket}",
+                     desc=f"Frames counted into {SNR_BUCKET_DB:g} dB bands. "
+                          "Distinct horizontal bands are distinct sets of "
+                          "neighbours, which is why this is a distribution and "
+                          "not an average."))
     p.append(barchart("Mean SNR by hop count", q_snr_by_hops(), 12, y, 6, 9,
                       xfield="hops", unit="dB", color=SLOT[0],
                       desc="Signal quality does not decay with hop count -- "

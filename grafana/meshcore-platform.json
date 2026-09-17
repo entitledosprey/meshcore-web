@@ -715,7 +715,7 @@
         "type": "influxdb",
         "uid": "cf9lcoakbb9j4a"
       },
-      "description": "Every frame's signal-to-noise, bucketed. Bands correspond to distinct sets of neighbours.",
+      "description": "Frames counted into 2 dB bands. Distinct horizontal bands are distinct sets of neighbours, which is why this is a distribution and not an average.",
       "gridPos": {
         "h": 9,
         "w": 12,
@@ -728,18 +728,13 @@
             "type": "influxdb",
             "uid": "cf9lcoakbb9j4a"
           },
-          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mc_rx\")\n  |> filter(fn: (r) => r.node =~ /^${node:regex}$/)\n  |> filter(fn: (r) => r._field == \"snr\")\n  |> group()\n  |> keep(columns: [\"_time\", \"_value\"])",
+          "query": "import \"math\"\n\nfrom(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mc_rx\")\n  |> filter(fn: (r) => r.node =~ /^${node:regex}$/)\n  |> filter(fn: (r) => r._field == \"snr\")\n  |> map(fn: (r) => ({r with snr_bucket:\n      string(v: int(v: math.floor(x: r._value / 2.0) * 2.0))}))\n  |> group(columns: [\"snr_bucket\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: count, createEmpty: false)\n  |> drop(columns: [\"_start\", \"_stop\", \"_measurement\", \"_field\"])",
           "refId": "A"
         }
       ],
+      "interval": "10m",
       "options": {
-        "calculate": true,
-        "calculation": {
-          "yBuckets": {
-            "mode": "size",
-            "value": "2"
-          }
-        },
+        "calculate": false,
         "color": {
           "mode": "scheme",
           "scheme": "Blues",
@@ -780,7 +775,8 @@
               "tooltip": false,
               "viz": false
             }
-          }
+          },
+          "displayName": "${__field.labels.snr_bucket}"
         },
         "overrides": []
       }
