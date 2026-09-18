@@ -190,15 +190,27 @@ function setIfIdle(sel, val) {
   if (el && document.activeElement !== el && val != null && el.value === '') el.value = val;
 }
 
+let repQuery = '';
+
 function renderRepeaters() {
   const list = $('#repeaterList');
   // Infrastructure only — companions belong on the Contacts tab.
-  const cs = (STATE.contacts || []).filter((c) => c.is_infra);
+  const all = (STATE.contacts || []).filter((c) => c.is_infra);
+  const q = repQuery.trim().toLowerCase();
+  const cs = q
+    ? all.filter((c) => (c.adv_name || '').toLowerCase().includes(q)
+                     || (c.public_key || '').toLowerCase().includes(q))
+    : all;
+
+  const badge = $('#repCount');
+  if (badge) badge.textContent = q ? `${cs.length} of ${all.length}` : `${all.length}`;
+
   if (!cs.length) {
-    list.innerHTML = `<div class="card"><div class="empty">
+    list.innerHTML = `<div class="card"><div class="empty">${
+      all.length ? 'No repeaters match that search.' : `
 No repeaters yet. A repeater is only heard when its radio settings match
       this node's exactly, so check those first on the Node tab. Then run
-      <b>Find &amp; add nodes</b>, or add one by URI above.</div></div>`;
+      <b>Find &amp; add nodes</b>, or add one by URI above.`}</div></div>`;
     return;
   }
   list.innerHTML = cs.map(repCard).join('');
@@ -1180,6 +1192,9 @@ function ctcCard(c) {
 
 $('#ctcSearch').addEventListener('input', (e) => {
   ctcQuery = e.target.value; renderContacts();
+});
+$('#repSearch').addEventListener('input', (e) => {
+  repQuery = e.target.value; renderRepeaters();
 });
 $('#ctcFilter').addEventListener('click', (e) => {
   const b = e.target.closest('.seg-btn');
