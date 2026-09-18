@@ -23,6 +23,10 @@ class Collector:
         self.local: LocalStatsPoller | None = None
         self.repeaters: RepeaterPoller | None = None
         self.started_at: float | None = None
+        # Wall clock is not safe for measuring elapsed time here: the Pi has no
+        # RTC, and a step correction after startup once made uptime jump 49 days
+        # in a single heartbeat. monotonic() is unaffected by clock steps.
+        self._started_mono: float | None = None
         self._task: asyncio.Task | None = None
 
     # ---------- identity ----------
@@ -70,6 +74,7 @@ class Collector:
 
         self._task = asyncio.create_task(self._heartbeat())
         self.started_at = time.time()
+        self._started_mono = time.monotonic()
         log.info("telemetry collecting into %s/%s as node %r",
                  self.cfg.url, self.cfg.bucket, self.node_name())
 
@@ -144,7 +149,8 @@ class Collector:
                         "queued": s.get("queued"),
                         "spool_bytes": s.get("spool_bytes"),
                         "repeater_failures": s.get("repeater_failures"),
-                        "uptime_secs": int(time.time() - (self.started_at or time.time())),
+                        "uptime_secs": int(
+                            time.monotonic() - (self._started_mono or time.monotonic())),
                     },
                     time.time_ns()))
             except asyncio.CancelledError:

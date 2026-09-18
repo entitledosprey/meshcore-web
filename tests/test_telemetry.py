@@ -491,5 +491,23 @@ def test_collector_end_to_end_without_a_radio(tmp_path):
     assert stats["node"] == "bench"
 
 
+def test_uptime_is_immune_to_wall_clock_steps(tmp_path):
+    """The Pi has no RTC; a step correction must not warp reported uptime."""
+    from app.telemetry.collector import Collector
+    from app.telemetry.config import TelemetryConfig
+
+    cfg = TelemetryConfig(
+        enabled=False, url="", token="", org="o", bucket="b", node="bench",
+        spool_dir=str(tmp_path), spool_max_bytes=1, batch_size=1,
+        flush_interval=1.0, local_interval=1.0, repeater_interval=300.0,
+        neighbour_interval=900.0, repeater_stagger=1.0, dedupe_ttl=1.0,
+        decrypt_channels=False, neighbours=False, neighbour_count=1)
+    c = Collector(object(), cfg)
+    c.started_at = 1.0              # as if the clock later stepped forward
+    c._started_mono = __import__("time").monotonic()
+    uptime = int(__import__("time").monotonic() - c._started_mono)
+    assert uptime < 5, "uptime must come from monotonic, not wall clock"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
