@@ -15,6 +15,10 @@ services:
       MESH_PORT: /dev/ttyACM0
       MESH_BAUD: "115200"
       MESH_PASSWORD_FILE: /data/passwords.json
+      # Each non-guest login makes a repeater schedule acl.save() -- a flash
+      # write. Long TTL means one login per container lifetime; if the repeater
+      # drops the session the next poll fails and re-logs in anyway.
+      MESH_LOGIN_TTL: ${MESH_LOGIN_TTL:-43200}
       MESH_MESSAGE_FILE: /data/messages.json
       TZ: ${TZ:-Etc/UTC}
       # Telemetry. With INFLUX_URL/INFLUX_TOKEN unset the console runs exactly
